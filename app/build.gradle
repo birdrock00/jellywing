@@ -29,15 +29,15 @@ android {
         release {
             keyAlias 'phonograph'
             storeFile file('../REDACTED.keystore')
+            storePassword 'REDACTED'
 
-            // "keystore.properties" file containing the keystore passwords is needed in order to sign for release
+            // "keystore.properties" file containing the release keys password is needed in order to sign the apk for release
             File propFile = project.rootProject.file('keystore.properties')
             if (propFile.exists()) {
                 Properties properties = new Properties()
                 properties.load(propFile.newDataInputStream())
 
                 keyPassword properties.getProperty('keyPassword')
-                storePassword properties.getProperty('storePassword')
             }
         }
     }
