@@ -23,6 +23,7 @@ repositories {
 play {
     serviceAccountEmail = 'REDACTED_SERVICE_ACCOUNT@developer.gserviceaccount.com'
     pk12File = file('../REDACTED/REDACTED.p12')
+    track = 'beta'
 }
 
 android {
