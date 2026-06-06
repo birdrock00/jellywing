@@ -12,6 +12,7 @@ import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.core.util.Pair;
 import androidx.appcompat.app.AppCompatActivity;
+import androidx.recyclerview.widget.RecyclerView;
 
 import com.dkanada.gramophone.App;
 import com.dkanada.gramophone.util.ThemeUtil;
@@ -34,6 +35,8 @@ import com.simplecityapps.recyclerview_fastscroll.views.FastScrollRecyclerView;
 import java.util.List;
 
 public class SongAdapter extends AbsMultiSelectAdapter<SongAdapter.ViewHolder, Song> implements FastScrollRecyclerView.SectionedAdapter {
+    private static final String TAG = SongAdapter.class.getSimpleName();
+
     protected final AppCompatActivity activity;
     protected List<Song> dataSet;
 
@@ -249,7 +252,9 @@ public class SongAdapter extends AbsMultiSelectAdapter<SongAdapter.ViewHolder, S
         }
 
         protected Song getSong() {
-            return dataSet.get(getBindingAdapterPosition());
+            int position = getBindingAdapterPosition();
+            if (position == RecyclerView.NO_POSITION) return null;
+            return dataSet.get(position);
         }
 
         protected int getSongMenuRes() {
@@ -270,16 +275,25 @@ public class SongAdapter extends AbsMultiSelectAdapter<SongAdapter.ViewHolder, S
 
         @Override
         public void onClick(View v) {
+            int position = getBindingAdapterPosition();
+            if (position == RecyclerView.NO_POSITION) {
+                Log.w(TAG, "Ignoring song click with no adapter position");
+                return;
+            }
+
             if (isActive()) {
-                toggleChecked(getBindingAdapterPosition());
+                toggleChecked(position);
             } else {
-                MusicPlayerRemote.openQueue(dataSet, getBindingAdapterPosition(), true);
+                Log.i(TAG, "Opening song queue from adapter position " + position);
+                MusicPlayerRemote.openQueue(dataSet, position, true);
             }
         }
 
         @Override
         public boolean onLongClick(View view) {
-            return toggleChecked(getBindingAdapterPosition());
+            int position = getBindingAdapterPosition();
+            if (position == RecyclerView.NO_POSITION) return false;
+            return toggleChecked(position);
         }
     }
 }

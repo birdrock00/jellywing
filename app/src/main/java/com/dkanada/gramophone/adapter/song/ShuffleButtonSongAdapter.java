@@ -80,6 +80,7 @@ public class ShuffleButtonSongAdapter extends AbsOffsetSongAdapter {
         public void onClick(View v) {
             if (getItemViewType() == OFFSET_ITEM) {
                 ShortcutUtil.getShuffle((media) -> MusicPlayerRemote.openAndShuffleQueue(media, true), isFavorite);
+                return;
             }
 
             super.onClick(v);
