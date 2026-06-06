@@ -3,6 +3,12 @@ name: Android build
 on:
   push:
   workflow_dispatch:
+    inputs:
+      run_playback_smoke:
+        description: Run the API 36 Jellyfin playback smoke test
+        required: false
+        default: false
+        type: boolean
   schedule:
     # GitHub Actions uses UTC. 13:00 UTC is 5AM PST.
     - cron: '0 13 * * *'
@@ -74,7 +80,7 @@ jobs:
           git push -f origin "refs/tags/${{ steps.build_date.outputs.tag }}"
 
   api36-playback-smoke:
-    if: github.event_name == 'workflow_dispatch'
+    if: github.event_name == 'workflow_dispatch' && inputs.run_playback_smoke
     runs-on: ubuntu-latest
     timeout-minutes: 15
     needs: build
