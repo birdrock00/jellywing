@@ -64,6 +64,12 @@ public abstract class AbsMusicServiceActivity extends AbsBaseActivity implements
     public void addMusicServiceEventListener(final MusicServiceEventListener listener) {
         if (listener != null) {
             mMusicServiceEventListeners.add(listener);
+            if (MusicPlayerRemote.musicService != null) {
+                listener.onServiceConnected();
+                listener.onQueueChanged();
+                listener.onPlayMetadataChanged();
+                listener.onPlayStateChanged();
+            }
         }
     }
 
