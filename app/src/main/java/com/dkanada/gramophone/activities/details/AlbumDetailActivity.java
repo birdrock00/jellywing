@@ -173,25 +173,24 @@ public class AlbumDetailActivity extends AbsMusicContentActivity implements Pale
     public boolean onOptionsItemSelected(@NonNull MenuItem item) {
         int id = item.getItemId();
         final List<Song> songs = adapter.getDataSet();
-        switch (id) {
-            case R.id.action_shuffle_album:
-                MusicPlayerRemote.openAndShuffleQueue(songs, true);
-                return true;
-            case R.id.action_play_next:
-                MusicPlayerRemote.playNext(songs);
-                return true;
-            case R.id.action_add_to_queue:
-                MusicPlayerRemote.enqueue(songs);
-                return true;
-            case R.id.action_add_to_playlist:
-                AddToPlaylistDialog.create(songs).show(getSupportFragmentManager(), "ADD_PLAYLIST");
-                return true;
-            case R.id.action_go_to_artist:
-                NavigationUtil.startArtist(this, new Artist(album), null);
-                return true;
-            case R.id.action_download:
-                NavigationUtil.startDownload(this, songs);
-                return true;
+        if (id == R.id.action_shuffle_album) {
+            MusicPlayerRemote.openAndShuffleQueue(songs, true);
+            return true;
+        } else if (id == R.id.action_play_next) {
+            MusicPlayerRemote.playNext(songs);
+            return true;
+        } else if (id == R.id.action_add_to_queue) {
+            MusicPlayerRemote.enqueue(songs);
+            return true;
+        } else if (id == R.id.action_add_to_playlist) {
+            AddToPlaylistDialog.create(songs).show(getSupportFragmentManager(), "ADD_PLAYLIST");
+            return true;
+        } else if (id == R.id.action_go_to_artist) {
+            NavigationUtil.startArtist(this, new Artist(album), null);
+            return true;
+        } else if (id == R.id.action_download) {
+            NavigationUtil.startDownload(this, songs);
+            return true;
         }
 
         return super.onOptionsItemSelected(item);
