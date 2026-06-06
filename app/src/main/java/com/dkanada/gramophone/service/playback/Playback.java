@@ -18,6 +18,8 @@ public interface Playback {
 
     boolean isLoading();
 
+    boolean hasMediaItems();
+
     void start();
 
     void pause();

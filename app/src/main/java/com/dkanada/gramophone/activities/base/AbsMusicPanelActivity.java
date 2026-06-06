@@ -128,7 +128,13 @@ public abstract class AbsMusicPanelActivity extends AbsMusicServiceActivity impl
     @Override
     public void onQueueChanged() {
         super.onQueueChanged();
-        hideBottomBar(MusicPlayerRemote.getPlayingQueue().isEmpty());
+        updateBottomBarVisibility();
+    }
+
+    @Override
+    public void onPlayMetadataChanged() {
+        super.onPlayMetadataChanged();
+        updateBottomBarVisibility();
     }
 
     @Override
@@ -203,6 +209,10 @@ public abstract class AbsMusicPanelActivity extends AbsMusicServiceActivity impl
         } else {
             binding.slidingLayout.setPanelHeight(getResources().getDimensionPixelSize(R.dimen.mini_player_height));
         }
+    }
+
+    public void updateBottomBarVisibility() {
+        hideBottomBar(MusicPlayerRemote.getPlayingQueue().isEmpty() && MusicPlayerRemote.getCurrentSong() == null);
     }
 
     protected View wrapSlidingMusicPanel(View view) {
