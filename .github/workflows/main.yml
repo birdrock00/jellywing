@@ -75,6 +75,7 @@ jobs:
 
   api36-playback-smoke:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     needs: build
     env:
       EXTERNAL_MEDIA_SERVER: ${{ secrets.EXTERNAL_MEDIA_SERVER }}
