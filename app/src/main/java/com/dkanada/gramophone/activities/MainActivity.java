@@ -133,24 +133,21 @@ public class MainActivity extends AbsMusicContentActivity implements CabHolder {
 
         binding.navigationView.setNavigationItemSelectedListener(menuItem -> {
             binding.drawerLayout.closeDrawers();
-            switch (menuItem.getItemId()) {
-                case R.id.nav_settings:
-                    new Handler().postDelayed(() -> startActivity(new Intent(MainActivity.this, SettingsActivity.class)), 200);
-                    break;
-                case R.id.nav_about:
-                    new Handler().postDelayed(() -> startActivity(new Intent(MainActivity.this, AboutActivity.class)), 200);
-                    break;
-                case R.id.nav_logout:
-                    onLogout = true;
-                    ConfirmLogoutDialog.create().show(getSupportFragmentManager(), ConfirmLogoutDialog.TAG);
-                    break;
+            int menuItemId = menuItem.getItemId();
+            if (menuItemId == R.id.nav_settings) {
+                new Handler().postDelayed(() -> startActivity(new Intent(MainActivity.this, SettingsActivity.class)), 200);
+            } else if (menuItemId == R.id.nav_about) {
+                new Handler().postDelayed(() -> startActivity(new Intent(MainActivity.this, AboutActivity.class)), 200);
+            } else if (menuItemId == R.id.nav_logout) {
+                onLogout = true;
+                ConfirmLogoutDialog.create().show(getSupportFragmentManager(), ConfirmLogoutDialog.TAG);
             }
 
             // only run the following code when a new library has been selected
-            if (menuItem.getItemId() == QueryUtil.currentLibrary.getId().hashCode()) return true;
+            if (menuItemId == QueryUtil.currentLibrary.getId().hashCode()) return true;
 
             for (BaseItemDto itemDto : libraries) {
-                if (menuItem.getItemId() == itemDto.getId().hashCode()) {
+                if (menuItemId == itemDto.getId().hashCode()) {
                     QueryUtil.currentLibrary = itemDto;
                     setCurrentFragment(LibraryFragment.newInstance());
                     break;

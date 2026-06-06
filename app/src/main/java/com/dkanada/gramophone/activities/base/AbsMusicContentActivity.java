@@ -7,6 +7,7 @@ import android.content.IntentFilter;
 import android.os.Bundle;
 
 import androidx.annotation.NonNull;
+import androidx.core.content.ContextCompat;
 
 import com.dkanada.gramophone.App;
 import com.dkanada.gramophone.interfaces.StateListener;
@@ -39,7 +40,7 @@ public abstract class AbsMusicContentActivity extends AbsMusicPanelActivity impl
         filter.addAction(LoginService.STATE_ONLINE);
         filter.addAction(LoginService.STATE_OFFLINE);
 
-        registerReceiver(receiver, filter);
+        ContextCompat.registerReceiver(this, receiver, filter, ContextCompat.RECEIVER_NOT_EXPORTED);
 
         if (App.getApiClient() == null) {
             startService(new Intent(this, LoginService.class));

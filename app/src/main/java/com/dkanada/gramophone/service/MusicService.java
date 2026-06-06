@@ -30,6 +30,8 @@ import android.widget.Toast;
 
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
+import androidx.core.content.ContextCompat;
+import androidx.media3.common.Player;
 
 import com.bumptech.glide.RequestBuilder;
 import com.bumptech.glide.request.target.CustomTarget;
@@ -53,7 +55,6 @@ import com.dkanada.gramophone.util.Util;
 import com.dkanada.gramophone.views.widgets.AppWidgetAlbum;
 import com.dkanada.gramophone.views.widgets.AppWidgetCard;
 import com.dkanada.gramophone.views.widgets.AppWidgetClassic;
-import com.google.android.exoplayer2.Player;
 
 import org.jellyfin.apiclient.interaction.EmptyResponse;
 import org.jellyfin.apiclient.interaction.Response;
@@ -71,9 +72,9 @@ import java.util.concurrent.Future;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 
-import static com.google.android.exoplayer2.Player.MEDIA_ITEM_TRANSITION_REASON_AUTO;
-import static com.google.android.exoplayer2.Player.MEDIA_ITEM_TRANSITION_REASON_PLAYLIST_CHANGED;
-import static com.google.android.exoplayer2.Player.PLAY_WHEN_READY_CHANGE_REASON_END_OF_MEDIA_ITEM;
+import static androidx.media3.common.Player.MEDIA_ITEM_TRANSITION_REASON_AUTO;
+import static androidx.media3.common.Player.MEDIA_ITEM_TRANSITION_REASON_PLAYLIST_CHANGED;
+import static androidx.media3.common.Player.PLAY_WHEN_READY_CHANGE_REASON_END_OF_MEDIA_ITEM;
 
 public class MusicService extends Service implements SharedPreferences.OnSharedPreferenceChangeListener {
     public static final String PACKAGE_NAME = BuildConfig.APPLICATION_ID;
@@ -253,8 +254,8 @@ public class MusicService extends Service implements SharedPreferences.OnSharedP
         throttledSeekHandler = new ThrottledSeekHandler(new Handler());
         uiThreadHandler = new Handler();
 
-        registerReceiver(widgetIntentReceiver, new IntentFilter(INTENT_EXTRA_WIDGET_UPDATE));
-        registerReceiver(becomingNoisyReceiver, new IntentFilter(AudioManager.ACTION_AUDIO_BECOMING_NOISY));
+        ContextCompat.registerReceiver(this, widgetIntentReceiver, new IntentFilter(INTENT_EXTRA_WIDGET_UPDATE), ContextCompat.RECEIVER_NOT_EXPORTED);
+        ContextCompat.registerReceiver(this, becomingNoisyReceiver, new IntentFilter(AudioManager.ACTION_AUDIO_BECOMING_NOISY), ContextCompat.RECEIVER_EXPORTED);
 
         PreferenceUtil.getInstance(this).registerOnSharedPreferenceChangedListener(this);
 

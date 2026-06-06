@@ -1,42 +1,74 @@
-name: main
-on: push
+name: Android build
+
+on:
+  push:
+  workflow_dispatch:
+  schedule:
+    # GitHub Actions uses UTC. 13:00 UTC is 5AM PST.
+    - cron: '0 13 * * *'
+
+permissions:
+  contents: write
+
 jobs:
-  main:
+  build:
     runs-on: ubuntu-latest
+    env:
+      HAS_SIGNING_KEY: ${{ secrets.STORE_DATA != '' && secrets.STORE_PASSWORD != '' && secrets.KEY_ALIAS != '' && secrets.KEY_PASSWORD != '' }}
+
     steps:
-    - name: Repository
-      uses: actions/checkout@v2
-      with:
-        fetch-depth: 0
-    - name: Variables
-      id: variables
-      run: echo ::set-output name=version::$(git describe --tags --always)
-    - name: Java
-      uses: actions/setup-java@v1
-      with:
-        java-version: 11
-    - name: Secrets
-      run: echo "${STORE_DATA}" | base64 --decode > store.jks
-      env:
-        STORE_DATA: ${{ secrets.STORE_DATA }}
-    - name: Build
-      uses: eskatos/gradle-command-action@v1
-      env:
-        STORE_PASSWORD: ${{ secrets.STORE_PASSWORD }}
-        KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
-        KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
-      with:
-        arguments: assemble
-        gradle-version: 7.3.3
-    - name: Move
-      run: mv app/build/outputs/apk/release/*.apk gelli-release-${version}.apk
-      env:
-        version: ${{ steps.variables.outputs.version }}
-    - name: Publish
-      if: startsWith(github.ref, 'refs/tags')
-      uses: ncipollo/release-action@v1
-      with:
-        artifacts: '*.apk'
-        tag: ${{ steps.variables.outputs.version }}
-        commit: ${{ github.sha }}
-        token: ${{ github.token }}
+      - name: Checkout
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Set up Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set build date
+        id: build_date
+        run: echo "tag=$(TZ=America/Los_Angeles date +'%Y-%m-%d')" >> "$GITHUB_OUTPUT"
+
+      - name: Restore signing key
+        if: env.HAS_SIGNING_KEY == 'true'
+        run: echo "${STORE_DATA}" | base64 --decode > store.jks
+        env:
+          STORE_DATA: ${{ secrets.STORE_DATA }}
+
+      - name: Build debug
+        run: ./gradlew clean assembleDebug testDebugUnitTest --stacktrace
+
+      - name: Build release
+        if: env.HAS_SIGNING_KEY == 'true'
+        env:
+          STORE_PASSWORD: ${{ secrets.STORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+        run: ./gradlew assembleRelease --stacktrace
+
+      - name: Package APKs
+        run: |
+          mkdir -p artifacts
+          find app/build/outputs/apk -name '*.apk' -print -exec cp {} artifacts/ \;
+          for apk in artifacts/*.apk; do
+            [ -e "$apk" ] || continue
+            mv "$apk" "artifacts/jellywing-${{ steps.build_date.outputs.tag }}-$(basename "$apk")"
+          done
+
+      - name: Upload APKs
+        uses: actions/upload-artifact@v4
+        with:
+          name: jellywing-${{ steps.build_date.outputs.tag }}
+          path: artifacts/*.apk
+          if-no-files-found: error
+
+      - name: Tag daily build
+        if: github.event_name == 'schedule'
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git tag -f "${{ steps.build_date.outputs.tag }}" "$GITHUB_SHA"
+          git push -f origin "refs/tags/${{ steps.build_date.outputs.tag }}"
