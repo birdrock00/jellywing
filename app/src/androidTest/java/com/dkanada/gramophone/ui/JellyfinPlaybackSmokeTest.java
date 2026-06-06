@@ -1,49 +1,54 @@
 package com.dkanada.gramophone.ui;
 
-import static androidx.test.espresso.Espresso.onView;
-import static androidx.test.espresso.action.ViewActions.click;
-import static androidx.test.espresso.action.ViewActions.closeSoftKeyboard;
-import static androidx.test.espresso.action.ViewActions.replaceText;
-import static androidx.test.espresso.contrib.RecyclerViewActions.actionOnItemAtPosition;
-import static androidx.test.espresso.matcher.ViewMatchers.isDisplayed;
-import static androidx.test.espresso.matcher.ViewMatchers.isRoot;
-import static androidx.test.espresso.matcher.ViewMatchers.withId;
-import static androidx.test.espresso.matcher.ViewMatchers.withText;
-import static org.hamcrest.Matchers.allOf;
+import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNotNull;
 import static org.junit.Assume.assumeTrue;
 
+import android.Manifest;
+import android.content.ComponentName;
+import android.content.ServiceConnection;
 import android.os.Bundle;
-import android.view.View;
+import android.os.IBinder;
 
-import androidx.annotation.IdRes;
-import androidx.test.core.app.ApplicationProvider;
-import androidx.recyclerview.widget.RecyclerView;
 import androidx.test.core.app.ActivityScenario;
-import androidx.test.espresso.UiController;
-import androidx.test.espresso.ViewAction;
 import androidx.test.ext.junit.runners.AndroidJUnit4;
 import androidx.test.filters.LargeTest;
 import androidx.test.platform.app.InstrumentationRegistry;
+import androidx.test.rule.GrantPermissionRule;
 
-import com.dkanada.gramophone.R;
+import com.dkanada.gramophone.App;
 import com.dkanada.gramophone.activities.LoginActivity;
 import com.dkanada.gramophone.helper.MusicPlayerRemote;
+import com.dkanada.gramophone.model.Song;
+import com.dkanada.gramophone.model.User;
+import com.dkanada.gramophone.util.PreferenceUtil;
+import com.dkanada.gramophone.util.QueryUtil;
 
-import org.hamcrest.Matcher;
+import org.jellyfin.apiclient.interaction.Response;
+import org.jellyfin.apiclient.model.dto.BaseItemDto;
+import org.jellyfin.apiclient.model.querying.ItemQuery;
+import org.jellyfin.apiclient.model.users.AuthenticationResult;
 import org.junit.Before;
+import org.junit.Rule;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 
-import java.util.ArrayDeque;
-import java.util.Locale;
-import java.util.Queue;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicReference;
 
 @LargeTest
 @RunWith(AndroidJUnit4.class)
 public class JellyfinPlaybackSmokeTest {
-    private static final long LOGIN_TIMEOUT_MS = 60_000;
-    private static final long LIBRARY_TIMEOUT_MS = 90_000;
-    private static final long PLAYBACK_TIMEOUT_MS = 45_000;
+    private static final long NETWORK_TIMEOUT_MS = 90_000;
+    private static final long PLAYBACK_TIMEOUT_MS = 60_000;
+
+    @Rule
+    public GrantPermissionRule mediaPermissions = GrantPermissionRule.grant(
+            Manifest.permission.READ_MEDIA_AUDIO,
+            Manifest.permission.POST_NOTIFICATIONS);
 
     private String server;
     private String username;
@@ -61,150 +66,157 @@ public class JellyfinPlaybackSmokeTest {
     }
 
     @Test
-    public void logsIntoJellyfinAndStartsSongPlayback() {
-        ActivityScenario.launch(LoginActivity.class);
+    public void logsIntoJellyfinAndStartsSongPlayback() throws Exception {
+        AuthenticationResult authentication = authenticate();
+        User user = new User(authentication, server);
 
-        onView(isRoot()).perform(waitForDisplayed(withId(R.id.login), 10_000));
-        onView(withId(R.id.server)).perform(replaceText(server), closeSoftKeyboard());
-        onView(withId(R.id.username)).perform(replaceText(username), closeSoftKeyboard());
-        onView(withId(R.id.password)).perform(replaceText(password), closeSoftKeyboard());
-        onView(withId(R.id.login)).perform(click());
+        App.getDatabase().userDao().insertUser(user);
+        PreferenceUtil.getInstance(App.getInstance()).setServer(user.server);
+        PreferenceUtil.getInstance(App.getInstance()).setUser(user.id);
+        App.getApiClient().SetAuthenticationInfo(user.token, user.id);
 
-        String songsTab = ApplicationProvider.getApplicationContext()
-                .getString(R.string.songs)
-                .toUpperCase(Locale.US);
+        QueryUtil.currentLibrary = findMusicLibrary();
+        List<Song> songs = loadSongs();
+        Song song = firstPlayableSong(songs);
+        assertNotNull("Jellyfin library did not return a playable song", song);
 
-        onView(isRoot()).perform(waitForDisplayed(withText(songsTab), LOGIN_TIMEOUT_MS));
-        onView(withText(songsTab)).perform(click());
-        onView(isRoot()).perform(waitForRecyclerItemCount(R.id.recycler_view, 2, LIBRARY_TIMEOUT_MS));
+        ActivityScenario<LoginActivity> scenario = ActivityScenario.launch(LoginActivity.class);
+        AtomicReference<MusicPlayerRemote.ServiceToken> tokenRef = new AtomicReference<>();
 
-        onView(allOf(withId(R.id.recycler_view), isDisplayed())).perform(actionOnItemAtPosition(1, click()));
-
-        onView(isRoot()).perform(waitUntil("music service starts playback", PLAYBACK_TIMEOUT_MS, () ->
-                MusicPlayerRemote.getCurrentSong() != null
-                        && MusicPlayerRemote.isPlaying()
-                        && MusicPlayerRemote.getSongDurationMillis() > 0));
-    }
-
-    private static boolean hasText(String value) {
-        return value != null && !value.trim().isEmpty();
-    }
-
-    private static ViewAction waitForDisplayed(Matcher<View> matcher, long timeoutMs) {
-        return waitUntil("view matching " + matcher + " is displayed", timeoutMs, () -> false, matcher);
-    }
-
-    private static ViewAction waitForRecyclerItemCount(@IdRes int recyclerViewId, int minimumCount, long timeoutMs) {
-        return new PollingViewAction("RecyclerView " + recyclerViewId + " has at least " + minimumCount + " items", timeoutMs) {
-            @Override
-            protected boolean isSatisfied(View root) {
-                RecyclerView recyclerView = findDisplayedRecyclerView(root, recyclerViewId);
-                if (recyclerView == null) {
-                    return false;
+        try {
+            CountDownLatch serviceConnected = new CountDownLatch(1);
+            scenario.onActivity(activity -> tokenRef.set(MusicPlayerRemote.bindToService(activity, new ServiceConnection() {
+                @Override
+                public void onServiceConnected(ComponentName name, IBinder service) {
+                    serviceConnected.countDown();
                 }
 
-                RecyclerView.Adapter<?> adapter = recyclerView.getAdapter();
-                return adapter != null && adapter.getItemCount() >= minimumCount;
-            }
-        };
-    }
-
-    private static ViewAction waitUntil(String description, long timeoutMs, Condition condition) {
-        return new PollingViewAction(description, timeoutMs) {
-            @Override
-            protected boolean isSatisfied(View root) {
-                return condition.isSatisfied();
-            }
-        };
-    }
-
-    private static ViewAction waitUntil(String description, long timeoutMs, Condition condition, Matcher<View> matcher) {
-        return new PollingViewAction(description, timeoutMs) {
-            @Override
-            protected boolean isSatisfied(View root) {
-                return condition.isSatisfied() || hasDisplayedMatch(root, matcher);
-            }
-        };
-    }
-
-    private static boolean hasDisplayedMatch(View root, Matcher<View> matcher) {
-        Queue<View> queue = new ArrayDeque<>();
-        queue.add(root);
-
-        while (!queue.isEmpty()) {
-            View view = queue.remove();
-            if (matcher.matches(view) && isDisplayed().matches(view)) {
-                return true;
-            }
-
-            if (view instanceof android.view.ViewGroup) {
-                android.view.ViewGroup group = (android.view.ViewGroup) view;
-                for (int i = 0; i < group.getChildCount(); i++) {
-                    queue.add(group.getChildAt(i));
+                @Override
+                public void onServiceDisconnected(ComponentName name) {
                 }
+            })));
+
+            assertTrueWithin("music service binds", serviceConnected, 15_000);
+
+            List<Song> queue = new ArrayList<>();
+            queue.add(song);
+            scenario.onActivity(activity -> MusicPlayerRemote.openQueue(queue, 0, true));
+
+            waitUntil("Media3 playback starts streaming a Jellyfin song", PLAYBACK_TIMEOUT_MS, () ->
+                    MusicPlayerRemote.getCurrentSong() != null
+                            && MusicPlayerRemote.isPlaying()
+                            && MusicPlayerRemote.getSongDurationMillis() > 0
+                            && MusicPlayerRemote.getSongProgressMillis() > 0);
+        } finally {
+            MusicPlayerRemote.pauseSong();
+            MusicPlayerRemote.unbindFromService(tokenRef.get());
+            scenario.close();
+        }
+    }
+
+    private AuthenticationResult authenticate() throws InterruptedException {
+        CountDownLatch latch = new CountDownLatch(1);
+        AtomicReference<AuthenticationResult> resultRef = new AtomicReference<>();
+        AtomicReference<Exception> errorRef = new AtomicReference<>();
+
+        App.getApiClient().ChangeServerLocation(server);
+        App.getApiClient().AuthenticateUserAsync(username, password, new Response<AuthenticationResult>() {
+            @Override
+            public void onResponse(AuthenticationResult result) {
+                resultRef.set(result);
+                latch.countDown();
+            }
+
+            @Override
+            public void onError(Exception exception) {
+                errorRef.set(exception);
+                latch.countDown();
+            }
+        });
+
+        assertTrueWithin("Jellyfin authentication completes", latch, NETWORK_TIMEOUT_MS);
+        if (errorRef.get() != null) {
+            throw new AssertionError("Jellyfin authentication failed", errorRef.get());
+        }
+
+        AuthenticationResult result = resultRef.get();
+        assertNotNull("Jellyfin authentication returned no result", result);
+        assertNotNull("Jellyfin authentication returned no access token", result.getAccessToken());
+        return result;
+    }
+
+    private BaseItemDto findMusicLibrary() throws InterruptedException {
+        CountDownLatch latch = new CountDownLatch(1);
+        AtomicReference<List<BaseItemDto>> librariesRef = new AtomicReference<>();
+
+        QueryUtil.getLibraries(libraries -> {
+            librariesRef.set(libraries);
+            latch.countDown();
+        });
+
+        assertTrueWithin("Jellyfin libraries load", latch, NETWORK_TIMEOUT_MS);
+        List<BaseItemDto> libraries = librariesRef.get();
+        assertNotNull("Jellyfin returned no libraries", libraries);
+        assertFalse("Jellyfin returned an empty library list", libraries.isEmpty());
+
+        for (BaseItemDto library : libraries) {
+            if ("music".equals(library.getCollectionType())) {
+                return library;
             }
         }
 
-        return false;
+        return libraries.get(0);
     }
 
-    private static RecyclerView findDisplayedRecyclerView(View root, @IdRes int recyclerViewId) {
-        Queue<View> queue = new ArrayDeque<>();
-        queue.add(root);
+    private List<Song> loadSongs() throws InterruptedException {
+        CountDownLatch latch = new CountDownLatch(1);
+        AtomicReference<List<Song>> songsRef = new AtomicReference<>();
 
-        while (!queue.isEmpty()) {
-            View view = queue.remove();
-            if (view.getId() == recyclerViewId && view instanceof RecyclerView && isDisplayed().matches(view)) {
-                return (RecyclerView) view;
-            }
+        QueryUtil.getSongs(new ItemQuery(), songs -> {
+            songsRef.set(songs);
+            latch.countDown();
+        });
 
-            if (view instanceof android.view.ViewGroup) {
-                android.view.ViewGroup group = (android.view.ViewGroup) view;
-                for (int i = 0; i < group.getChildCount(); i++) {
-                    queue.add(group.getChildAt(i));
-                }
+        assertTrueWithin("Jellyfin songs load through QueryUtil", latch, NETWORK_TIMEOUT_MS);
+        List<Song> songs = songsRef.get();
+        assertNotNull("Jellyfin returned no songs", songs);
+        assertFalse("Jellyfin returned an empty song list", songs.isEmpty());
+        return songs;
+    }
+
+    private Song firstPlayableSong(List<Song> songs) {
+        for (Song song : songs) {
+            if (hasText(song.id) && hasText(song.container) && hasText(song.codec)) {
+                return song;
             }
         }
 
         return null;
     }
 
-    private interface Condition {
-        boolean isSatisfied();
+    private static boolean hasText(String value) {
+        return value != null && !value.trim().isEmpty();
     }
 
-    private abstract static class PollingViewAction implements ViewAction {
-        private final String description;
-        private final long timeoutMs;
-
-        private PollingViewAction(String description, long timeoutMs) {
-            this.description = description;
-            this.timeoutMs = timeoutMs;
+    private static void assertTrueWithin(String description, CountDownLatch latch, long timeoutMs) throws InterruptedException {
+        if (!latch.await(timeoutMs, TimeUnit.MILLISECONDS)) {
+            throw new AssertionError("Timed out waiting for " + description);
         }
+    }
 
-        @Override
-        public Matcher<View> getConstraints() {
-            return isRoot();
-        }
+    private static void waitUntil(String description, long timeoutMs, Condition condition) throws InterruptedException {
+        long deadline = System.currentTimeMillis() + timeoutMs;
+        do {
+            if (condition.isSatisfied()) {
+                return;
+            }
+            Thread.sleep(250);
+        } while (System.currentTimeMillis() < deadline);
 
-        @Override
-        public String getDescription() {
-            return String.format(Locale.US, "Wait up to %d ms until %s", timeoutMs, description);
-        }
+        throw new AssertionError("Timed out waiting for " + description);
+    }
 
-        @Override
-        public void perform(UiController uiController, View root) {
-            long deadline = System.currentTimeMillis() + timeoutMs;
-            do {
-                if (isSatisfied(root)) {
-                    return;
-                }
-                uiController.loopMainThreadForAtLeast(250);
-            } while (System.currentTimeMillis() < deadline);
-
-            throw new AssertionError(getDescription());
-        }
-
-        protected abstract boolean isSatisfied(View root);
+    private interface Condition {
+        boolean isSatisfied();
     }
 }
