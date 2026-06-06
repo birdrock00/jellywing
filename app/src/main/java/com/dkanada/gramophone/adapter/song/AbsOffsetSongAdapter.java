@@ -1,5 +1,6 @@
 package com.dkanada.gramophone.adapter.song;
 
+import android.util.Log;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
@@ -8,6 +9,7 @@ import androidx.annotation.LayoutRes;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.appcompat.app.AppCompatActivity;
+import androidx.recyclerview.widget.RecyclerView;
 
 import com.dkanada.gramophone.R;
 import com.dkanada.gramophone.helper.MusicPlayerRemote;
@@ -17,6 +19,8 @@ import com.dkanada.gramophone.model.Song;
 import java.util.List;
 
 public abstract class AbsOffsetSongAdapter extends SongAdapter {
+    private static final String TAG = AbsOffsetSongAdapter.class.getSimpleName();
+
     protected static final int OFFSET_ITEM = 0;
     protected static final int SONG = 1;
 
@@ -90,22 +94,40 @@ public abstract class AbsOffsetSongAdapter extends SongAdapter {
         protected Song getSong() {
             // return empty song just to be safe
             if (getItemViewType() == OFFSET_ITEM) return null;
-            return dataSet.get(getBindingAdapterPosition() - 1);
+            int position = getBindingAdapterPosition();
+            if (position == RecyclerView.NO_POSITION) return null;
+            return dataSet.get(position - 1);
         }
 
         @Override
         public void onClick(View v) {
+            int adapterPosition = getBindingAdapterPosition();
+            if (adapterPosition == RecyclerView.NO_POSITION) {
+                Log.w(TAG, "Ignoring offset song click with no adapter position");
+                return;
+            }
+
             if (isActive() && getItemViewType() != OFFSET_ITEM) {
-                toggleChecked(getBindingAdapterPosition());
+                toggleChecked(adapterPosition);
             } else {
-                MusicPlayerRemote.openQueue(dataSet, getBindingAdapterPosition() - 1, true);
+                int songPosition = adapterPosition - 1;
+                if (songPosition < 0 || songPosition >= dataSet.size()) {
+                    Log.w(TAG, "Ignoring offset song click outside data set: adapterPosition=" + adapterPosition + ", dataSetSize=" + dataSet.size());
+                    return;
+                }
+
+                Log.i(TAG, "Opening song queue from adapter position " + adapterPosition + ", song position " + songPosition);
+                MusicPlayerRemote.openQueue(dataSet, songPosition, true);
             }
         }
 
         @Override
         public boolean onLongClick(View view) {
             if (getItemViewType() == OFFSET_ITEM) return false;
-            toggleChecked(getBindingAdapterPosition());
+
+            int adapterPosition = getBindingAdapterPosition();
+            if (adapterPosition == RecyclerView.NO_POSITION) return false;
+            toggleChecked(adapterPosition);
             return true;
         }
     }
