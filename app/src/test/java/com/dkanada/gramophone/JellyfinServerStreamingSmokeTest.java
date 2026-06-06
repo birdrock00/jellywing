@@ -31,9 +31,9 @@ public class JellyfinServerStreamingSmokeTest {
 
     @Before
     public void readRuntimeCredentials() {
-        server = credential("jellyfinServer", "EXTERNAL_MEDIA_SERVER");
-        username = credential("jellyfinUsername", "EXTERNAL_MEDIA_USERNAME");
-        password = credential("jellyfinPassword", "EXTERNAL_MEDIA_PASSWORD");
+        server = System.getProperty("jellyfinServer");
+        username = System.getProperty("jellyfinUsername");
+        password = System.getProperty("jellyfinPassword");
 
         assumeTrue("Pass Jellyfin credentials with -DjellyfinServer, -DjellyfinUsername, and -DjellyfinPassword",
                 hasText(server) && hasText(username) && hasText(password));
@@ -145,11 +145,6 @@ public class JellyfinServerStreamingSmokeTest {
         return "MediaBrowser Client=\"" + CLIENT_NAME + "\", Device=\"JUnit\", DeviceId=\""
                 + UUID.nameUUIDFromBytes(CLIENT_NAME.getBytes(StandardCharsets.UTF_8))
                 + "\", Version=\"" + CLIENT_VERSION + "\"";
-    }
-
-    private static String credential(String propertyName, String environmentName) {
-        String property = System.getProperty(propertyName);
-        return hasText(property) ? property : System.getenv(environmentName);
     }
 
     private static boolean hasText(String value) {

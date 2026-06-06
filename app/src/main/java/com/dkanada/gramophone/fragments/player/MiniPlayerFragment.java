@@ -14,6 +14,7 @@ import android.view.ViewGroup;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 
+import com.dkanada.gramophone.activities.base.AbsMusicPanelActivity;
 import com.dkanada.gramophone.databinding.FragmentMiniPlayerBinding;
 import com.dkanada.gramophone.model.Song;
 import com.dkanada.gramophone.util.PreferenceUtil;
@@ -74,6 +75,9 @@ public class MiniPlayerFragment extends AbsMusicServiceFragment implements Music
         Song song = MusicPlayerRemote.getCurrentSong();
         if (song != null) {
             binding.miniPlayerTitle.setText(song.title);
+            if (getActivity() instanceof AbsMusicPanelActivity) {
+                ((AbsMusicPanelActivity) getActivity()).updateBottomBarVisibility();
+            }
         }
     }
 
@@ -89,12 +93,20 @@ public class MiniPlayerFragment extends AbsMusicServiceFragment implements Music
     }
 
     @Override
+    public void onQueueChanged() {
+        updateSongTitle();
+        updatePlayPauseDrawableState(false);
+    }
+
+    @Override
     public void onPlayStateChanged() {
         updatePlayPauseDrawableState(true);
     }
 
     @Override
     public void onUpdateProgressViews(int progress, int total) {
+        updateSongTitle();
+        updatePlayPauseDrawableState(false);
         binding.progressBar.setIndeterminate(MusicPlayerRemote.isLoading());
         binding.progressBar.setMax(total);
         binding.progressBar.setProgress(progress);

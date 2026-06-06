@@ -240,8 +240,18 @@ public class LocalPlayer implements Playback {
     }
 
     @Override
+    public boolean hasMediaItems() {
+        return callOnPlayerThread(() -> exoPlayer.getMediaItemCount() > 0, false);
+    }
+
+    @Override
     public void start() {
-        runOnPlayerThread(() -> exoPlayer.setPlayWhenReady(true));
+        runOnPlayerThread(() -> {
+            if (exoPlayer.getMediaItemCount() > 0 && exoPlayer.getPlaybackState() == Player.STATE_IDLE) {
+                exoPlayer.prepare();
+            }
+            exoPlayer.setPlayWhenReady(true);
+        });
     }
 
     @Override
