@@ -7,6 +7,7 @@ import android.content.ContextWrapper;
 import android.content.Intent;
 import android.content.ServiceConnection;
 import android.os.IBinder;
+import android.util.Log;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import android.widget.Toast;
@@ -23,6 +24,8 @@ import java.util.Random;
 import java.util.WeakHashMap;
 
 public class MusicPlayerRemote {
+    private static final String TAG = MusicPlayerRemote.class.getSimpleName();
+
     public static MusicService musicService;
 
     private static final WeakHashMap<Context, ServiceBinder> mConnectionMap = new WeakHashMap<>();
@@ -142,6 +145,13 @@ public class MusicPlayerRemote {
     }
 
     public static void openQueue(final List<Song> queue, final int startPosition, final boolean startPlaying) {
+        Log.i(TAG, "openQueue: size=" + queue.size() + ", startPosition=" + startPosition + ", startPlaying=" + startPlaying + ", serviceConnected=" + (musicService != null));
+
+        if (queue.isEmpty() || startPosition < 0 || startPosition >= queue.size()) {
+            Log.w(TAG, "Ignoring openQueue request outside queue bounds");
+            return;
+        }
+
         if (!tryToHandleOpenPlayingQueue(queue, startPosition) && musicService != null) {
             if (!PreferenceUtil.getInstance(musicService).getRememberShuffle()) {
                 setShuffleMode(QueueManager.SHUFFLE_MODE_NONE);
