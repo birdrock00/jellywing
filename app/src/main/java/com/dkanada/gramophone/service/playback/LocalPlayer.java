@@ -38,6 +38,8 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.FutureTask;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import java.util.stream.Collectors;
 
 public class LocalPlayer implements Playback {
@@ -317,9 +319,11 @@ public class LocalPlayer implements Playback {
         playerHandler.post(task);
 
         try {
-            return task.get();
+            return task.get(2, TimeUnit.SECONDS);
         } catch (InterruptedException exception) {
             Thread.currentThread().interrupt();
+            return fallback;
+        } catch (TimeoutException exception) {
             return fallback;
         } catch (ExecutionException exception) {
             throw new IllegalStateException(exception);
