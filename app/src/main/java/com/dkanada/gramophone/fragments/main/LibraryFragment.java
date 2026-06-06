@@ -192,16 +192,15 @@ public class LibraryFragment extends AbsMainActivityFragment implements ViewPage
         }
 
         int id = item.getItemId();
-        switch (id) {
-            case R.id.action_shuffle_all:
-                ShortcutUtil.getShuffle((media) -> MusicPlayerRemote.openAndShuffleQueue(media, true), false);
-                return true;
-            case R.id.action_new_playlist:
-                CreatePlaylistDialog.create().show(getChildFragmentManager(), "CREATE_PLAYLIST");
-                return true;
-            case R.id.action_search:
-                startActivity(new Intent(getActivity(), SearchActivity.class));
-                return true;
+        if (id == R.id.action_shuffle_all) {
+            ShortcutUtil.getShuffle((media) -> MusicPlayerRemote.openAndShuffleQueue(media, true), false);
+            return true;
+        } else if (id == R.id.action_new_playlist) {
+            CreatePlaylistDialog.create().show(getChildFragmentManager(), "CREATE_PLAYLIST");
+            return true;
+        } else if (id == R.id.action_search) {
+            startActivity(new Intent(getActivity(), SearchActivity.class));
+            return true;
         }
 
         return super.onOptionsItemSelected(item);
@@ -258,31 +257,23 @@ public class LibraryFragment extends AbsMainActivityFragment implements ViewPage
 
     private boolean handleGridSizeMenuItem(@NonNull AbsLibraryPagerRecyclerViewCustomGridSizeFragment fragment, @NonNull MenuItem item) {
         int gridSize = 0;
-        switch (item.getItemId()) {
-            case R.id.action_grid_size_1:
-                gridSize = 1;
-                break;
-            case R.id.action_grid_size_2:
-                gridSize = 2;
-                break;
-            case R.id.action_grid_size_3:
-                gridSize = 3;
-                break;
-            case R.id.action_grid_size_4:
-                gridSize = 4;
-                break;
-            case R.id.action_grid_size_5:
-                gridSize = 5;
-                break;
-            case R.id.action_grid_size_6:
-                gridSize = 6;
-                break;
-            case R.id.action_grid_size_7:
-                gridSize = 7;
-                break;
-            case R.id.action_grid_size_8:
-                gridSize = 8;
-                break;
+        int itemId = item.getItemId();
+        if (itemId == R.id.action_grid_size_1) {
+            gridSize = 1;
+        } else if (itemId == R.id.action_grid_size_2) {
+            gridSize = 2;
+        } else if (itemId == R.id.action_grid_size_3) {
+            gridSize = 3;
+        } else if (itemId == R.id.action_grid_size_4) {
+            gridSize = 4;
+        } else if (itemId == R.id.action_grid_size_5) {
+            gridSize = 5;
+        } else if (itemId == R.id.action_grid_size_6) {
+            gridSize = 6;
+        } else if (itemId == R.id.action_grid_size_7) {
+            gridSize = 7;
+        } else if (itemId == R.id.action_grid_size_8) {
+            gridSize = 8;
         }
 
         if (gridSize > 0) {
@@ -338,25 +329,19 @@ public class LibraryFragment extends AbsMainActivityFragment implements ViewPage
 
     private boolean handleSortMethodMenuItem(@NonNull AbsLibraryPagerRecyclerViewCustomGridSizeFragment fragment, @NonNull MenuItem item) {
         SortMethod sortMethod = null;
-        switch (item.getItemId()) {
-            case R.id.action_sort_method_name:
-                sortMethod = SortMethod.NAME;
-                break;
-            case R.id.action_sort_method_album:
-                sortMethod = SortMethod.ALBUM;
-                break;
-            case R.id.action_sort_method_artist:
-                sortMethod = SortMethod.ARTIST;
-                break;
-            case R.id.action_sort_method_year:
-                sortMethod = SortMethod.YEAR;
-                break;
-            case R.id.action_sort_method_added:
-                sortMethod = SortMethod.ADDED;
-                break;
-            case R.id.action_sort_method_random:
-                sortMethod = SortMethod.RANDOM;
-                break;
+        int itemId = item.getItemId();
+        if (itemId == R.id.action_sort_method_name) {
+            sortMethod = SortMethod.NAME;
+        } else if (itemId == R.id.action_sort_method_album) {
+            sortMethod = SortMethod.ALBUM;
+        } else if (itemId == R.id.action_sort_method_artist) {
+            sortMethod = SortMethod.ARTIST;
+        } else if (itemId == R.id.action_sort_method_year) {
+            sortMethod = SortMethod.YEAR;
+        } else if (itemId == R.id.action_sort_method_added) {
+            sortMethod = SortMethod.ADDED;
+        } else if (itemId == R.id.action_sort_method_random) {
+            sortMethod = SortMethod.RANDOM;
         }
 
         if (sortMethod != null) {
@@ -370,13 +355,11 @@ public class LibraryFragment extends AbsMainActivityFragment implements ViewPage
 
     private boolean handleSortOrderMenuItem(@NonNull AbsLibraryPagerRecyclerViewCustomGridSizeFragment fragment, @NonNull MenuItem item) {
         SortOrder sortOrder = null;
-        switch (item.getItemId()) {
-            case R.id.action_sort_order_ascending:
-                sortOrder = SortOrder.ASCENDING;
-                break;
-            case R.id.action_sort_order_descending:
-                sortOrder = SortOrder.DESCENDING;
-                break;
+        int itemId = item.getItemId();
+        if (itemId == R.id.action_sort_order_ascending) {
+            sortOrder = SortOrder.ASCENDING;
+        } else if (itemId == R.id.action_sort_order_descending) {
+            sortOrder = SortOrder.DESCENDING;
         }
 
         if (sortOrder != null) {
