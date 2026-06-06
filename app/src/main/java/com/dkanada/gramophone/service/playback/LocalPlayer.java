@@ -127,6 +127,7 @@ public class LocalPlayer implements Playback {
             runOnPlayerThread(() -> {
                 if (resetCurrentSong) {
                     exoPlayer.setMediaItems(mediaItems, position, progress);
+                    exoPlayer.prepare();
                     return;
                 }
 
@@ -142,6 +143,7 @@ public class LocalPlayer implements Playback {
                 }
 
                 exoPlayer.addMediaItems(0, mediaItems.subList(0, position));
+                exoPlayer.prepare();
             });
         });
     }
