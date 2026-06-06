@@ -399,13 +399,13 @@ public class CardPlayerFragment extends AbsPlayerFragment implements PlayerAlbum
 
                 @Override
                 public boolean onMenuItemClick(MenuItem item) {
-                    switch (item.getItemId()) {
-                        case R.id.action_remove_from_queue:
-                            MusicPlayerRemote.removeFromQueue(MusicPlayerRemote.getPosition());
-                            return true;
-                        case R.id.action_share:
-                            SongShareDialog.create(getSong()).show(fragment.getParentFragmentManager(), SongShareDialog.TAG);
-                            return true;
+                    int itemId = item.getItemId();
+                    if (itemId == R.id.action_remove_from_queue) {
+                        MusicPlayerRemote.removeFromQueue(MusicPlayerRemote.getPosition());
+                        return true;
+                    } else if (itemId == R.id.action_share) {
+                        SongShareDialog.create(getSong()).show(fragment.getParentFragmentManager(), SongShareDialog.TAG);
+                        return true;
                     }
 
                     return super.onMenuItemClick(item);
