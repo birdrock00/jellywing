@@ -223,7 +223,18 @@ public class JellyfinPlaybackSmokeTest {
             Thread.sleep(250);
         } while (System.currentTimeMillis() < deadline);
 
-        throw new AssertionError("Timed out waiting for " + description);
+        throw new AssertionError("Timed out waiting for " + description + ". " + describePlaybackState());
+    }
+
+    private static String describePlaybackState() {
+        Song currentSong = MusicPlayerRemote.getCurrentSong();
+        return "currentSong=" + (currentSong == null ? "null" : currentSong.title)
+                + ", queueSize=" + MusicPlayerRemote.getPlayingQueue().size()
+                + ", position=" + MusicPlayerRemote.getPosition()
+                + ", playing=" + MusicPlayerRemote.isPlaying()
+                + ", loading=" + MusicPlayerRemote.isLoading()
+                + ", durationMs=" + MusicPlayerRemote.getSongDurationMillis()
+                + ", progressMs=" + MusicPlayerRemote.getSongProgressMillis();
     }
 
     private interface Condition {
