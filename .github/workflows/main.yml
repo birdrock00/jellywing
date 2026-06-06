@@ -113,10 +113,10 @@ jobs:
           profile: pixel_6
           disable-animations: true
           emulator-options: -no-window -no-audio -no-snapshot -no-boot-anim -gpu swiftshader_indirect
-          script: |
-            ./gradlew :app:connectedDebugAndroidTest \
-              -Pandroid.testInstrumentationRunnerArguments.class=com.dkanada.gramophone.ui.JellyfinPlaybackSmokeTest \
-              -Pandroid.testInstrumentationRunnerArguments.jellyfinServer="$EXTERNAL_MEDIA_SERVER" \
-              -Pandroid.testInstrumentationRunnerArguments.jellyfinUsername="$EXTERNAL_MEDIA_USERNAME" \
-              -Pandroid.testInstrumentationRunnerArguments.jellyfinPassword="$EXTERNAL_MEDIA_PASSWORD" \
-              --stacktrace
+          script: >
+            ./gradlew :app:connectedDebugAndroidTest
+            -Pandroid.testInstrumentationRunnerArguments.class=com.dkanada.gramophone.ui.JellyfinPlaybackSmokeTest
+            -Pandroid.testInstrumentationRunnerArguments.jellyfinServer="$EXTERNAL_MEDIA_SERVER"
+            -Pandroid.testInstrumentationRunnerArguments.jellyfinUsername="$EXTERNAL_MEDIA_USERNAME"
+            -Pandroid.testInstrumentationRunnerArguments.jellyfinPassword="$EXTERNAL_MEDIA_PASSWORD"
+            --stacktrace
