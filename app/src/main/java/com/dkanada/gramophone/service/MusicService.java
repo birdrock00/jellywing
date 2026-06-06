@@ -568,7 +568,10 @@ public class MusicService extends Service implements SharedPreferences.OnSharedP
         uiThreadHandler.post(runnable);
     }
 
-    public void openQueue(@Nullable final List<Song> playingQueue, final int startPosition, final boolean startPlaying) {
+    public synchronized void openQueue(@Nullable final List<Song> playingQueue, final int startPosition, final boolean startPlaying) {
+        queueHandler.removeMessages(LOAD_QUEUE);
+        queuesRestored = true;
+
         if (playingQueue != null && !playingQueue.isEmpty() && startPosition >= 0 && startPosition < playingQueue.size()) {
             queueManager.setPlayingQueueAndPosition(playingQueue, startPosition);
             if (startPlaying) play();
