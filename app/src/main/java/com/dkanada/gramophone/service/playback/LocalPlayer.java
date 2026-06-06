@@ -2,6 +2,8 @@ package com.dkanada.gramophone.service.playback;
 
 import android.content.Context;
 import android.net.Uri;
+import android.os.Handler;
+import android.os.Looper;
 import android.util.Log;
 import android.widget.Toast;
 
@@ -31,8 +33,11 @@ import com.dkanada.gramophone.util.PreferenceUtil;
 import java.io.File;
 import java.util.List;
 import java.util.Locale;
+import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.FutureTask;
 import java.util.stream.Collectors;
 
 public class LocalPlayer implements Playback {
@@ -40,6 +45,7 @@ public class LocalPlayer implements Playback {
 
     private final Context context;
     private final ExoPlayer exoPlayer;
+    private final Handler playerHandler;
     private final SimpleCache simpleCache;
 
     private PlaybackListener listener;
@@ -103,6 +109,7 @@ public class LocalPlayer implements Playback {
 
         exoPlayer.addListener(eventListener);
         exoPlayer.prepare();
+        playerHandler = new Handler(exoPlayer.getApplicationLooper());
 
         long cacheSize = PreferenceUtil.getInstance(context).getMediaCacheSize();
         LeastRecentlyUsedCacheEvictor recentlyUsedCache = new LeastRecentlyUsedCacheEvictor(cacheSize);
@@ -117,24 +124,25 @@ public class LocalPlayer implements Playback {
         executorService.submit(() -> {
             List<MediaItem> mediaItems = createMediaItems(queue);
 
-            // TODO: Call this on main thread
-            if (resetCurrentSong) {
-                exoPlayer.setMediaItems(mediaItems, position, progress);
-                return;
-            }
+            runOnPlayerThread(() -> {
+                if (resetCurrentSong) {
+                    exoPlayer.setMediaItems(mediaItems, position, progress);
+                    return;
+                }
 
-            int currentPosition = exoPlayer.getCurrentMediaItemIndex();
-            exoPlayer.removeMediaItems(0, currentPosition);
+                int currentPosition = exoPlayer.getCurrentMediaItemIndex();
+                exoPlayer.removeMediaItems(0, currentPosition);
 
-            if (exoPlayer.getMediaItemCount() > 1) {
-                exoPlayer.removeMediaItems(1, exoPlayer.getMediaItemCount());
-            }
+                if (exoPlayer.getMediaItemCount() > 1) {
+                    exoPlayer.removeMediaItems(1, exoPlayer.getMediaItemCount());
+                }
 
-            if (position + 1 < mediaItems.size()) {
-                exoPlayer.addMediaItems(1, mediaItems.subList(position + 1, mediaItems.size()));
-            }
+                if (position + 1 < mediaItems.size()) {
+                    exoPlayer.addMediaItems(1, mediaItems.subList(position + 1, mediaItems.size()));
+                }
 
-            exoPlayer.addMediaItems(0, mediaItems.subList(0, position));
+                exoPlayer.addMediaItems(0, mediaItems.subList(0, position));
+            });
         });
     }
 
@@ -176,9 +184,11 @@ public class LocalPlayer implements Playback {
 
     @Override
     public void playSongAt(int position) {
-        if (exoPlayer.getMediaItemCount() > 0) {
-            exoPlayer.seekTo(Math.max(0, position) % exoPlayer.getMediaItemCount(), 0);
-        }
+        runOnPlayerThread(() -> {
+            if (exoPlayer.getMediaItemCount() > 0) {
+                exoPlayer.seekTo(Math.max(0, position) % exoPlayer.getMediaItemCount(), 0);
+            }
+        });
     }
 
     private DataSource.Factory buildDataSourceFactory() {
@@ -202,78 +212,115 @@ public class LocalPlayer implements Playback {
 
     @Override
     public boolean isReady() {
-        return exoPlayer.getPlayWhenReady();
+        return callOnPlayerThread(exoPlayer::getPlayWhenReady, false);
     }
 
     @Override
     public boolean isPlaying() {
-        return exoPlayer.getPlayWhenReady() && exoPlayer.getPlaybackSuppressionReason() == Player.PLAYBACK_SUPPRESSION_REASON_NONE;
+        return callOnPlayerThread(
+                () -> exoPlayer.getPlayWhenReady() && exoPlayer.getPlaybackSuppressionReason() == Player.PLAYBACK_SUPPRESSION_REASON_NONE,
+                false);
     }
 
     @Override
     @SuppressWarnings("ConstantConditions")
     public boolean isLoading() {
-        MediaItem current = exoPlayer.getCurrentMediaItem();
-        if (current != null && current.localConfiguration.uri.toString().contains("file://")) {
-            return false;
-        }
+        return callOnPlayerThread(() -> {
+            MediaItem current = exoPlayer.getCurrentMediaItem();
+            if (current != null && current.localConfiguration.uri.toString().contains("file://")) {
+                return false;
+            }
 
-        return exoPlayer.getPlaybackState() == Player.STATE_BUFFERING;
+            return exoPlayer.getPlaybackState() == Player.STATE_BUFFERING;
+        }, false);
     }
 
     @Override
     public void start() {
-        exoPlayer.setPlayWhenReady(true);
+        runOnPlayerThread(() -> exoPlayer.setPlayWhenReady(true));
     }
 
     @Override
     public void pause() {
-        exoPlayer.setPlayWhenReady(false);
+        runOnPlayerThread(() -> exoPlayer.setPlayWhenReady(false));
     }
 
     @Override
     public void stop() {
+        callOnPlayerThread(() -> {
+            exoPlayer.release();
+            return null;
+        }, null);
         simpleCache.release();
-        exoPlayer.release();
     }
 
     @Override
     public void previous() {
-        exoPlayer.seekToPreviousMediaItem();
+        runOnPlayerThread(exoPlayer::seekToPreviousMediaItem);
     }
 
     @Override
     public void next() {
-        exoPlayer.seekToNextMediaItem();
+        runOnPlayerThread(exoPlayer::seekToNextMediaItem);
     }
 
     @Override
     public void setRepeatMode(@Player.RepeatMode int repeatMode) {
-        exoPlayer.setRepeatMode(repeatMode);
+        runOnPlayerThread(() -> exoPlayer.setRepeatMode(repeatMode));
     }
 
     @Override
     public int getProgress() {
-        return (int) exoPlayer.getCurrentPosition();
+        return callOnPlayerThread(() -> (int) exoPlayer.getCurrentPosition(), 0);
     }
 
     @Override
     public int getDuration() {
-        return (int) exoPlayer.getDuration();
+        return callOnPlayerThread(() -> (int) exoPlayer.getDuration(), 0);
     }
 
     @Override
     public void setProgress(int progress) {
-        exoPlayer.seekTo(progress);
+        runOnPlayerThread(() -> exoPlayer.seekTo(progress));
     }
 
     @Override
     public void setVolume(int volume) {
-        exoPlayer.setVolume(volume / 100f);
+        runOnPlayerThread(() -> exoPlayer.setVolume(volume / 100f));
     }
 
     @Override
     public int getVolume() {
-        return (int) (exoPlayer.getVolume() * 100);
+        return callOnPlayerThread(() -> (int) (exoPlayer.getVolume() * 100), 100);
+    }
+
+    private void runOnPlayerThread(Runnable runnable) {
+        if (Looper.myLooper() == exoPlayer.getApplicationLooper()) {
+            runnable.run();
+        } else {
+            playerHandler.post(runnable);
+        }
+    }
+
+    private <T> T callOnPlayerThread(Callable<T> callable, T fallback) {
+        if (Looper.myLooper() == exoPlayer.getApplicationLooper()) {
+            try {
+                return callable.call();
+            } catch (Exception exception) {
+                throw new IllegalStateException(exception);
+            }
+        }
+
+        FutureTask<T> task = new FutureTask<>(callable);
+        playerHandler.post(task);
+
+        try {
+            return task.get();
+        } catch (InterruptedException exception) {
+            Thread.currentThread().interrupt();
+            return fallback;
+        } catch (ExecutionException exception) {
+            throw new IllegalStateException(exception);
+        }
     }
 }
