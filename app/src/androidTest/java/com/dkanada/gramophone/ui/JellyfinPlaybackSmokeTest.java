@@ -115,34 +115,44 @@ public class JellyfinPlaybackSmokeTest {
     }
 
     private AuthenticationResult authenticate() throws InterruptedException {
-        CountDownLatch latch = new CountDownLatch(1);
-        AtomicReference<AuthenticationResult> resultRef = new AtomicReference<>();
-        AtomicReference<Exception> errorRef = new AtomicReference<>();
+        long deadline = System.currentTimeMillis() + NETWORK_TIMEOUT_MS;
+        Throwable lastFailure = null;
 
-        App.getApiClient().ChangeServerLocation(server);
-        App.getApiClient().AuthenticateUserAsync(username, password, new Response<AuthenticationResult>() {
-            @Override
-            public void onResponse(AuthenticationResult result) {
-                resultRef.set(result);
-                latch.countDown();
+        while (System.currentTimeMillis() < deadline) {
+            CountDownLatch latch = new CountDownLatch(1);
+            AtomicReference<AuthenticationResult> resultRef = new AtomicReference<>();
+            AtomicReference<Exception> errorRef = new AtomicReference<>();
+
+            App.getApiClient().ChangeServerLocation(server);
+            App.getApiClient().AuthenticateUserAsync(username, password, new Response<AuthenticationResult>() {
+                @Override
+                public void onResponse(AuthenticationResult result) {
+                    resultRef.set(result);
+                    latch.countDown();
+                }
+
+                @Override
+                public void onError(Exception exception) {
+                    errorRef.set(exception);
+                    latch.countDown();
+                }
+            });
+
+            if (!latch.await(15_000, TimeUnit.MILLISECONDS)) {
+                lastFailure = new AssertionError("Timed out waiting for Jellyfin authentication attempt");
+            } else if (errorRef.get() == null) {
+                AuthenticationResult result = resultRef.get();
+                assertNotNull("Jellyfin authentication returned no result", result);
+                assertNotNull("Jellyfin authentication returned no access token", result.getAccessToken());
+                return result;
+            } else {
+                lastFailure = errorRef.get();
             }
 
-            @Override
-            public void onError(Exception exception) {
-                errorRef.set(exception);
-                latch.countDown();
-            }
-        });
-
-        assertTrueWithin("Jellyfin authentication completes", latch, NETWORK_TIMEOUT_MS);
-        if (errorRef.get() != null) {
-            throw new AssertionError("Jellyfin authentication failed", errorRef.get());
+            Thread.sleep(2_000);
         }
 
-        AuthenticationResult result = resultRef.get();
-        assertNotNull("Jellyfin authentication returned no result", result);
-        assertNotNull("Jellyfin authentication returned no access token", result.getAccessToken());
-        return result;
+        throw new AssertionError("Jellyfin authentication failed", lastFailure);
     }
 
     private BaseItemDto findMusicLibrary() throws InterruptedException {
