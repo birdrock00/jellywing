@@ -193,7 +193,7 @@ public class MainActivity extends AbsMusicContentActivity implements CabHolder {
             navigationBinding.text.setText(MusicUtil.getSongInfoString(song));
 
             CustomGlideRequest.Builder
-                .from(this, song.primary, song.blurHash)
+                .from(this, song.getArtworkItemId(), song.blurHash)
                 .build().centerInside().into(navigationBinding.image);
         } else if (binding.navigationView.getHeaderCount() != 0) {
             binding.navigationView.removeHeaderView(navigationBinding.getRoot());
