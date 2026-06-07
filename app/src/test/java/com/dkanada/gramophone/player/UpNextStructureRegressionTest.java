@@ -61,6 +61,38 @@ public class UpNextStructureRegressionTest {
         assertTrue(source.contains("MusicPlayerRemote.openQueue(playList, playList.indexOf(item), true);"));
     }
 
+    @Test
+    public void playbackNotificationFallsBackWhenForegroundPromotionIsDisallowed() throws IOException {
+        String source = readProjectFile("app/src/main/java/com/dkanada/gramophone/service/notifications/PlayingNotification.java");
+
+        assertTrue(source.contains("service.startForeground(NOTIFICATION_ID, notification);"));
+        assertTrue(source.contains("catch (RuntimeException exception)"));
+        assertTrue(source.contains("if (!isForegroundServiceStartNotAllowed(exception))"));
+        assertTrue(source.contains("throw exception;"));
+        assertTrue(source.contains("notificationManager.notify(NOTIFICATION_ID, notification);"));
+        assertTrue(source.contains("newNotifyMode = NOTIFY_MODE_BACKGROUND;"));
+        assertTrue(source.contains("FOREGROUND_SERVICE_START_NOT_ALLOWED_EXCEPTION"));
+        assertTrue(source.contains("\"android.app.ForegroundServiceStartNotAllowedException\""));
+    }
+
+    @Test
+    public void serviceBindingDoesNotStartPlaybackServiceForSearchScreens() throws IOException {
+        String source = readProjectFile("app/src/main/java/com/dkanada/gramophone/helper/MusicPlayerRemote.java");
+
+        assertTrue(source.contains("contextWrapper.bindService(new Intent().setClass(contextWrapper, MusicService.class), binder, Context.BIND_AUTO_CREATE)"));
+        assertTrue(!source.contains("contextWrapper.startService(new Intent(contextWrapper, MusicService.class));"));
+    }
+
+    @Test
+    public void musicServiceStartsItselfOnlyWhenPlaybackBegins() throws IOException {
+        String source = readProjectFile("app/src/main/java/com/dkanada/gramophone/service/MusicService.java");
+
+        assertTrue(source.contains("public void play() {\n        ensureStartedForPlayback();"));
+        assertTrue(source.contains("private void ensureStartedForPlayback()"));
+        assertTrue(source.contains("startService(new Intent(this, MusicService.class));"));
+        assertTrue(source.contains("catch (IllegalStateException ignored)"));
+    }
+
     private static void assertUpNextLayout(String relativePath) throws IOException {
         String layout = readProjectFile(relativePath);
 
