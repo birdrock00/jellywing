@@ -11,6 +11,9 @@ import android.view.animation.PathInterpolator;
 import androidx.annotation.FloatRange;
 import androidx.annotation.RequiresApi;
 import androidx.core.graphics.ColorUtils;
+import androidx.core.graphics.Insets;
+import androidx.core.view.ViewCompat;
+import androidx.core.view.WindowInsetsCompat;
 import androidx.fragment.app.Fragment;
 
 import com.dkanada.gramophone.R;
@@ -37,6 +40,7 @@ public abstract class AbsMusicPanelActivity extends AbsMusicServiceActivity impl
     private AbsPlayerFragment playerFragment;
     private MiniPlayerFragment miniPlayerFragment;
     private ValueAnimator navigationBarColorAnimator;
+    private int navigationBarInsetBottom;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -207,7 +211,7 @@ public abstract class AbsMusicPanelActivity extends AbsMusicServiceActivity impl
             binding.slidingLayout.setPanelHeight(0);
             collapsePanel();
         } else {
-            binding.slidingLayout.setPanelHeight(getResources().getDimensionPixelSize(R.dimen.mini_player_height));
+            binding.slidingLayout.setPanelHeight(getVisibleBottomBarHeight());
         }
     }
 
@@ -221,7 +225,35 @@ public abstract class AbsMusicPanelActivity extends AbsMusicServiceActivity impl
         ViewGroup contentContainer = binding.contentContainer;
         contentContainer.addView(view);
 
+        applyNavigationBarInsets();
+
         return binding.getRoot();
+    }
+
+    private int getVisibleBottomBarHeight() {
+        return getResources().getDimensionPixelSize(R.dimen.mini_player_height) + navigationBarInsetBottom;
+    }
+
+    private void applyNavigationBarInsets() {
+        ViewCompat.setOnApplyWindowInsetsListener(binding.slidingPanel, (slidingPanel, windowInsets) -> {
+            Insets navigationBarInsets = windowInsets.getInsets(WindowInsetsCompat.Type.navigationBars());
+
+            if (navigationBarInsetBottom != navigationBarInsets.bottom) {
+                navigationBarInsetBottom = navigationBarInsets.bottom;
+                slidingPanel.setPadding(
+                    slidingPanel.getPaddingLeft(),
+                    slidingPanel.getPaddingTop(),
+                    slidingPanel.getPaddingRight(),
+                    navigationBarInsetBottom
+                );
+                if (!MusicPlayerRemote.getPlayingQueue().isEmpty() || MusicPlayerRemote.getCurrentSong() != null) {
+                    binding.slidingLayout.setPanelHeight(getVisibleBottomBarHeight());
+                }
+            }
+
+            return windowInsets;
+        });
+        ViewCompat.requestApplyInsets(binding.slidingPanel);
     }
 
     @Override

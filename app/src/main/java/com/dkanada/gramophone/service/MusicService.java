@@ -604,12 +604,23 @@ public class MusicService extends Service implements SharedPreferences.OnSharedP
     }
 
     public void play() {
+        ensureStartedForPlayback();
+
         if (!playback.hasMediaItems() && queueManager.getCurrentSong() != null) {
             playback.setQueue(queueManager.getPlayingQueue(), queueManager.getPosition(), 0, true);
         }
 
         if (!playback.isPlaying()) {
             playback.start();
+        }
+    }
+
+    private void ensureStartedForPlayback() {
+        try {
+            startService(new Intent(this, MusicService.class));
+        } catch (IllegalStateException ignored) {
+            // The service can already be alive via binding; Android may reject a background
+            // start, but playback should still avoid crashing the current foreground screen.
         }
     }
 

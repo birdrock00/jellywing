@@ -37,7 +37,6 @@ public class MusicPlayerRemote {
         }
 
         final ContextWrapper contextWrapper = new ContextWrapper(realActivity);
-        contextWrapper.startService(new Intent(contextWrapper, MusicService.class));
 
         final ServiceBinder binder = new ServiceBinder(callback);
 

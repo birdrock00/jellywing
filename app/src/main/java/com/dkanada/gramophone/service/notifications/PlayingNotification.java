@@ -4,6 +4,7 @@ import android.app.Notification;
 import android.app.NotificationChannel;
 import android.app.NotificationManager;
 import android.os.Build;
+import android.util.Log;
 
 import androidx.annotation.RequiresApi;
 
@@ -13,6 +14,10 @@ import com.dkanada.gramophone.service.MusicService;
 import static android.content.Context.NOTIFICATION_SERVICE;
 
 public abstract class PlayingNotification {
+    private static final String TAG = PlayingNotification.class.getSimpleName();
+    static final String FOREGROUND_SERVICE_START_NOT_ALLOWED_EXCEPTION =
+            "android.app.ForegroundServiceStartNotAllowedException";
+
     private static final int NOTIFICATION_ID = 1;
     protected static final String NOTIFICATION_CHANNEL_ID = "playing_notification";
 
@@ -54,12 +59,30 @@ public abstract class PlayingNotification {
         }
 
         if (newNotifyMode == NOTIFY_MODE_FOREGROUND) {
-            service.startForeground(NOTIFICATION_ID, notification);
+            try {
+                service.startForeground(NOTIFICATION_ID, notification);
+            } catch (RuntimeException exception) {
+                if (!isForegroundServiceStartNotAllowed(exception)) {
+                    throw exception;
+                }
+
+                Log.w(TAG, "Foreground playback notification was not allowed; posting background notification instead", exception);
+                notificationManager.notify(NOTIFICATION_ID, notification);
+                newNotifyMode = NOTIFY_MODE_BACKGROUND;
+            }
         } else {
             notificationManager.notify(NOTIFICATION_ID, notification);
         }
 
         notifyMode = newNotifyMode;
+    }
+
+    static boolean isForegroundServiceStartNotAllowed(RuntimeException exception) {
+        return isForegroundServiceStartNotAllowedClassName(exception.getClass().getName());
+    }
+
+    static boolean isForegroundServiceStartNotAllowedClassName(String className) {
+        return FOREGROUND_SERVICE_START_NOT_ALLOWED_EXCEPTION.equals(className);
     }
 
     @RequiresApi(Build.VERSION_CODES.O)
