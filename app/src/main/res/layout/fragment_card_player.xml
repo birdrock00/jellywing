@@ -86,25 +86,30 @@
         <com.dkanada.gramophone.views.StatusBarMarginFrameLayout
             android:id="@+id/player_panel"
             android:layout_width="match_parent"
-            android:layout_height="wrap_content"
+            android:layout_height="match_parent"
             android:layout_marginTop="@dimen/status_bar_padding"
             android:orientation="vertical">
 
             <androidx.cardview.widget.CardView
                 android:id="@+id/playing_queue_card"
                 android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginBottom="-8dp"
+                android:layout_height="match_parent"
+                android:layout_marginBottom="8dp"
                 android:layout_marginStart="16dp"
                 android:layout_marginEnd="16dp"
                 android:layout_marginTop="8dp"
+                android:clipChildren="true"
+                android:clipToOutline="true"
+                android:clipToPadding="true"
                 app:cardBackgroundColor="?cardBackgroundColor"
                 app:cardElevation="@dimen/card_elevation"
                 app:cardUseCompatPadding="false">
 
                 <RelativeLayout
                     android:layout_width="match_parent"
-                    android:layout_height="wrap_content">
+                    android:layout_height="match_parent"
+                    android:clipChildren="true"
+                    android:clipToPadding="true">
 
                     <!-- necessary for the drag sorting to work at the top -->
                     <View
@@ -118,12 +123,15 @@
                     <LinearLayout
                         android:id="@+id/card_content"
                         android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
+                        android:layout_height="match_parent"
+                        android:clipChildren="true"
+                        android:clipToPadding="true"
                         android:orientation="vertical">
 
                         <include
                             android:id="@+id/current_song"
-                            layout="@layout/item_list" />
+                            layout="@layout/item_list"
+                            android:visibility="gone" />
 
                         <TextView
                             android:id="@+id/player_queue_sub_header"
@@ -136,12 +144,23 @@
                             android:textAppearance="@style/TextAppearance.AppCompat.Body2"
                             android:textColor="?android:textColorSecondary" />
 
-                        <androidx.recyclerview.widget.RecyclerView
-                            android:id="@+id/player_recycler_view"
+                        <FrameLayout
+                            android:id="@+id/player_recycler_viewport"
                             android:layout_width="match_parent"
-                            android:layout_height="wrap_content"
-                            android:paddingBottom="8dp"
-                            android:requiresFadingEdge="vertical" />
+                            android:layout_height="0dp"
+                            android:layout_weight="1"
+                            android:clipChildren="true"
+                            android:clipToPadding="true">
+
+                            <androidx.recyclerview.widget.RecyclerView
+                                android:id="@+id/player_recycler_view"
+                                android:layout_width="match_parent"
+                                android:layout_height="match_parent"
+                                android:clipToPadding="true"
+                                android:paddingBottom="8dp"
+                                android:requiresFadingEdge="vertical" />
+
+                        </FrameLayout>
 
                     </LinearLayout>
 

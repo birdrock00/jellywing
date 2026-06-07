@@ -157,11 +157,20 @@ public class SearchAdapter extends RecyclerView.Adapter<SearchAdapter.ViewHolder
                             Pair.create(image, activity.getResources().getString(R.string.transition_artist_image)));
                     break;
                 case SONG:
-                    List<Song> playList = new ArrayList<>();
-                    playList.add((Song) item);
-                    MusicPlayerRemote.openQueue(playList, 0, true);
+                    List<Song> playList = getSongResults();
+                    MusicPlayerRemote.openQueue(playList, playList.indexOf(item), true);
                     break;
             }
         }
+    }
+
+    private List<Song> getSongResults() {
+        List<Song> songs = new ArrayList<>();
+        for (Object item : dataSet) {
+            if (item instanceof Song) {
+                songs.add((Song) item);
+            }
+        }
+        return songs;
     }
 }

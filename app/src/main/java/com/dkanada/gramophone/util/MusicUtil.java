@@ -113,8 +113,21 @@ public class MusicUtil {
     }
 
     @NonNull
-    public static String getSongInfoString(@NonNull final Song song) {
-        return song.albumName;
+    public static String getSongInfoString(@Nullable final Song song) {
+        if (song == null) {
+            return "";
+        }
+
+        return buildInfoString(song.artistName, song.albumName);
+    }
+
+    @NonNull
+    public static String getSongTitle(@Nullable final Song song) {
+        if (song == null) {
+            return "Unknown song";
+        }
+
+        return song.getDisplayTitle();
     }
 
     @NonNull
@@ -174,15 +187,19 @@ public class MusicUtil {
 
     @NonNull
     public static String buildInfoString(@Nullable final String one, @Nullable final String two) {
-        if (TextUtils.isEmpty(one)) {
-            return TextUtils.isEmpty(two) ? "" : two;
+        if (isBlank(one)) {
+            return isBlank(two) ? "" : two;
         }
 
-        if (TextUtils.isEmpty(two)) {
-            return TextUtils.isEmpty(one) ? "" : one;
+        if (isBlank(two)) {
+            return isBlank(one) ? "" : one;
         }
 
         return one + "  •  " + two;
+    }
+
+    private static boolean isBlank(@Nullable final String value) {
+        return value == null || value.trim().isEmpty();
     }
 
     public static void toggleFavorite(Song song) {
