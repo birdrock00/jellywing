@@ -14,6 +14,7 @@ import com.dkanada.gramophone.glide.CustomGlideRequest;
 import com.dkanada.gramophone.glide.CustomPaletteTarget;
 import com.dkanada.gramophone.model.Song;
 
+import java.util.ArrayList;
 import java.util.List;
 
 public class AlbumCoverPagerAdapter extends CustomFragmentStatePagerAdapter {
@@ -24,7 +25,7 @@ public class AlbumCoverPagerAdapter extends CustomFragmentStatePagerAdapter {
 
     public AlbumCoverPagerAdapter(FragmentManager fm, List<Song> dataSet) {
         super(fm);
-        this.dataSet = dataSet;
+        this.dataSet = dataSet == null ? new ArrayList<>() : new ArrayList<>(dataSet);
     }
 
     @Override
@@ -35,6 +36,31 @@ public class AlbumCoverPagerAdapter extends CustomFragmentStatePagerAdapter {
     @Override
     public int getCount() {
         return dataSet.size();
+    }
+
+    public Song getSongAtPositionForTest(int position) {
+        return dataSet.get(position);
+    }
+
+    @Override
+    public int getItemPosition(@NonNull Object object) {
+        if (!(object instanceof AlbumCoverFragment)) {
+            return POSITION_NONE;
+        }
+
+        Song song = ((AlbumCoverFragment) object).getSongForTest();
+        if (song == null || song.id == null) {
+            return POSITION_NONE;
+        }
+
+        for (int position = 0; position < dataSet.size(); position++) {
+            Song candidate = dataSet.get(position);
+            if (candidate != null && song.id.equals(candidate.id)) {
+                return position;
+            }
+        }
+
+        return POSITION_NONE;
     }
 
     @Override
@@ -107,7 +133,7 @@ public class AlbumCoverPagerAdapter extends CustomFragmentStatePagerAdapter {
 
         private void loadAlbumCover() {
             CustomGlideRequest.Builder
-                    .from(getContext(), song.primary, song.blurHash)
+                    .from(getContext(), song.getArtworkItemId(), song.blurHash)
                     .palette().build()
                     .into(new CustomPaletteTarget(binding.playerImage) {
                         @Override
@@ -135,9 +161,12 @@ public class AlbumCoverPagerAdapter extends CustomFragmentStatePagerAdapter {
             }
         }
 
+        public Song getSongForTest() {
+            return song;
+        }
+
         public interface ColorReceiver {
             void onColorReady(int color, int request);
         }
     }
 }
-

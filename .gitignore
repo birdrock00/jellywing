@@ -1,5 +1,6 @@
 # Build
 *.apk
+*.aab
 
 # Cache
 bin
@@ -23,6 +24,10 @@ build
 
 # Configuration
 local.properties
+.jellywing-emulator.env
+start-jellywing-emulator.sh
+*.jks
+*.keystore
 
 # Other
 .idea

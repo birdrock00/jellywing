@@ -144,7 +144,7 @@ public class SongAdapter extends AbsMultiSelectAdapter<SongAdapter.ViewHolder, S
         if (holder.image == null) return;
 
         CustomGlideRequest.Builder
-                .from(activity, song.primary, song.blurHash)
+                .from(activity, song.getArtworkItemId(), song.blurHash)
                 .palette().build()
                 .into(new CustomPaletteTarget(holder.image) {
                     @Override
@@ -165,7 +165,7 @@ public class SongAdapter extends AbsMultiSelectAdapter<SongAdapter.ViewHolder, S
     }
 
     protected String getSongTitle(Song song) {
-        return song.title;
+        return MusicUtil.getSongTitle(song);
     }
 
     protected String getSongText(Song song) {
@@ -184,7 +184,7 @@ public class SongAdapter extends AbsMultiSelectAdapter<SongAdapter.ViewHolder, S
 
     @Override
     protected String getName(Song song) {
-        return song.title;
+        return MusicUtil.getSongTitle(song);
     }
 
     @Override

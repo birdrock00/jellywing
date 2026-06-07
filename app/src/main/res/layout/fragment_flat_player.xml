@@ -85,7 +85,10 @@
 
             <RelativeLayout
                 android:layout_width="match_parent"
-                android:layout_height="wrap_content">
+                android:layout_height="0dp"
+                android:layout_weight="1"
+                android:clipChildren="true"
+                android:clipToPadding="true">
 
                 <!-- necessary for the drag sorting to work at the top -->
                 <View
@@ -99,7 +102,9 @@
                 <LinearLayout
                     android:id="@+id/player_panel_content"
                     android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
+                    android:layout_height="match_parent"
+                    android:clipChildren="true"
+                    android:clipToPadding="true"
                     android:orientation="vertical">
 
                     <View
@@ -110,7 +115,8 @@
 
                     <include
                         android:id="@+id/current_song"
-                        layout="@layout/item_list" />
+                        layout="@layout/item_list"
+                        android:visibility="gone" />
 
                     <TextView
                         android:id="@+id/player_queue_sub_header"
@@ -123,11 +129,22 @@
                         android:textAppearance="@style/TextAppearance.AppCompat.Body2"
                         android:textColor="?android:textColorSecondary" />
 
-                    <androidx.recyclerview.widget.RecyclerView
-                        android:id="@+id/player_recycler_view"
+                    <FrameLayout
+                        android:id="@+id/player_recycler_viewport"
                         android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:requiresFadingEdge="vertical" />
+                        android:layout_height="0dp"
+                        android:layout_weight="1"
+                        android:clipChildren="true"
+                        android:clipToPadding="true">
+
+                        <androidx.recyclerview.widget.RecyclerView
+                            android:id="@+id/player_recycler_view"
+                            android:layout_width="match_parent"
+                            android:layout_height="match_parent"
+                            android:clipToPadding="true"
+                            android:requiresFadingEdge="vertical" />
+
+                    </FrameLayout>
 
                 </LinearLayout>
 

@@ -19,4 +19,7 @@ public interface SongDao {
 
     @Query("SELECT * FROM songs WHERE id = :id")
     Song getSong(String id);
+
+    @Query("SELECT * FROM songs")
+    List<Song> getSongs();
 }

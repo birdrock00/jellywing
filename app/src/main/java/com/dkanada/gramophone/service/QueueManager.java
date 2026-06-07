@@ -39,9 +39,9 @@ public class QueueManager {
     }
 
     public void setPlayingQueueAndPosition(List<Song> queue, int position) {
-        this.position = position;
         this.playingQueue = new ArrayList<>(queue);
         this.shuffledQueue = new ArrayList<>(queue);
+        this.position = clampPosition(position);
         shuffleQueue();
 
         callbacks.onQueueChanged();
@@ -68,7 +68,7 @@ public class QueueManager {
     }
 
     public void setPosition(int position) {
-        this.position = position;
+        this.position = clampPosition(position);
     }
 
     public void setNextPosition() {
@@ -117,7 +117,9 @@ public class QueueManager {
             case REPEAT_MODE_ALL:
             case REPEAT_MODE_THIS:
                 this.repeatMode = repeatMode;
-                PreferenceUtil.getInstance(context).setRepeat(repeatMode);
+                if (context != null) {
+                    PreferenceUtil.getInstance(context).setRepeat(repeatMode);
+                }
                 callbacks.onRepeatModeChanged();
                 break;
         }
@@ -133,11 +135,12 @@ public class QueueManager {
 
                 break;
             case SHUFFLE_MODE_NONE:
-                String currentSongId = getCurrentSong().id;
+                Song current = getCurrentSong();
+                String currentSongId = current != null ? current.id : null;
                 int newPosition = 0;
 
                 Optional<Song> currentSong = playingQueue.stream()
-                        .filter(song -> song.id.equals(currentSongId))
+                        .filter(song -> song.id != null && song.id.equals(currentSongId))
                         .findFirst();
 
                 if (currentSong.isPresent()) {
@@ -277,12 +280,21 @@ public class QueueManager {
         }
     }
 
+    public void toggleRepeatMode() {
+        if (getRepeatMode() == REPEAT_MODE_ALL) {
+            setRepeatMode(REPEAT_MODE_NONE);
+        } else {
+            setRepeatMode(REPEAT_MODE_ALL);
+        }
+    }
+
     public void restoreQueue() {
         position = PreferenceUtil.getInstance(context).getPosition();
         restoredProgress = PreferenceUtil.getInstance(context).getProgress();
 
         playingQueue = new ArrayList<>(App.getDatabase().queueSongDao().getQueue(0));
         shuffledQueue = new ArrayList<>(App.getDatabase().queueSongDao().getQueue(1));
+        position = clampPosition(position);
 
         shuffleMode = PreferenceUtil.getInstance(context).getShuffle();
         repeatMode = PreferenceUtil.getInstance(context).getRepeat();
@@ -309,6 +321,15 @@ public class QueueManager {
         resetCurrentSong = true;
 
         return reset;
+    }
+
+    private int clampPosition(int requestedPosition) {
+        List<Song> queue = getPlayingQueue();
+        if (queue.isEmpty()) {
+            return 0;
+        }
+
+        return Math.max(0, Math.min(requestedPosition, queue.size() - 1));
     }
 
     interface QueueCallbacks {

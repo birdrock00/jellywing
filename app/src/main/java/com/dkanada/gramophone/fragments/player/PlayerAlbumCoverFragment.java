@@ -15,20 +15,26 @@ import androidx.annotation.NonNull;
 import androidx.viewpager.widget.ViewPager;
 
 import com.dkanada.gramophone.adapter.AlbumCoverPagerAdapter;
+import com.dkanada.gramophone.R;
 import com.dkanada.gramophone.databinding.FragmentPlayerAlbumCoverBinding;
+import com.dkanada.gramophone.glide.CustomGlideRequest;
+import com.dkanada.gramophone.glide.CustomPaletteTarget;
 import com.dkanada.gramophone.helper.MusicPlayerRemote;
 import com.dkanada.gramophone.interfaces.base.SimpleAnimatorListener;
 import com.dkanada.gramophone.fragments.AbsMusicServiceFragment;
+import com.dkanada.gramophone.model.Song;
 import com.dkanada.gramophone.util.ViewUtil;
 
-public class PlayerAlbumCoverFragment extends AbsMusicServiceFragment implements ViewPager.OnPageChangeListener {
+import java.util.List;
 
+public class PlayerAlbumCoverFragment extends AbsMusicServiceFragment implements ViewPager.OnPageChangeListener {
     public static final int VISIBILITY_ANIM_DURATION = 300;
 
     private FragmentPlayerAlbumCoverBinding binding;
 
     private Callbacks callbacks;
     private int currentPosition;
+    private boolean syncingCurrentItem;
 
     @Override
     public View onCreateView(@NonNull LayoutInflater inflater, ViewGroup container, Bundle savedInstanceState) {
@@ -70,24 +76,105 @@ public class PlayerAlbumCoverFragment extends AbsMusicServiceFragment implements
     }
 
     @Override
+    public void onResume() {
+        super.onResume();
+        updateCurrentArtwork();
+        updateCurrentSongText();
+    }
+
+    @Override
     public void onServiceConnected() {
         updatePlayingQueue();
+        updateCurrentArtwork();
+        updateCurrentSongText();
     }
 
     @Override
     public void onPlayMetadataChanged() {
-        binding.playerAlbumCoverViewPager.setCurrentItem(MusicPlayerRemote.getPosition());
+        updatePlayingQueue();
+        updateCurrentArtwork();
+        updateCurrentSongText();
     }
 
     @Override
     public void onQueueChanged() {
         updatePlayingQueue();
+        updateCurrentArtwork();
+        updateCurrentSongText();
     }
 
     private void updatePlayingQueue() {
-        binding.playerAlbumCoverViewPager.setAdapter(new AlbumCoverPagerAdapter(getParentFragmentManager(), MusicPlayerRemote.getPlayingQueue()));
-        binding.playerAlbumCoverViewPager.setCurrentItem(MusicPlayerRemote.getPosition());
-        onPageSelected(MusicPlayerRemote.getPosition());
+        if (binding == null) {
+            return;
+        }
+
+        List<Song> queue = MusicPlayerRemote.getPlayingQueue();
+        int position = MusicPlayerRemote.getPosition();
+        if (queue == null || queue.isEmpty() || position < 0 || position >= queue.size()) {
+            binding.playerAlbumCoverViewPager.setAdapter(null);
+            clearCurrentArtwork();
+            return;
+        }
+
+        AlbumCoverPagerAdapter adapter = new AlbumCoverPagerAdapter(getParentFragmentManager(), queue);
+        syncingCurrentItem = true;
+        binding.playerAlbumCoverViewPager.setAdapter(null);
+        binding.playerAlbumCoverViewPager.removeAllViews();
+        binding.playerAlbumCoverViewPager.setAdapter(adapter);
+        binding.playerAlbumCoverViewPager.setOffscreenPageLimit(Math.max(1, Math.min(queue.size() - 1, 3)));
+
+        binding.playerAlbumCoverViewPager.setCurrentItem(position, false);
+        forceCurrentCoverFragment(adapter, position);
+        currentPosition = position;
+        adapter.receiveColor(colorReceiver, position);
+        syncingCurrentItem = false;
+    }
+
+    private void updateCurrentArtwork() {
+        if (binding == null) {
+            return;
+        }
+
+        Song song = MusicPlayerRemote.getCurrentSong();
+        if (song == null) {
+            clearCurrentArtwork();
+            return;
+        }
+
+        String artworkItemId = song.getArtworkItemId();
+        binding.playerCurrentImage.setTag(R.id.current_album_artwork_song_id, song.id);
+        binding.playerCurrentImage.setTag(R.id.current_album_artwork_id, artworkItemId);
+        binding.playerCurrentImage.setImageResource(R.drawable.default_album_art);
+        CustomGlideRequest.Builder
+                .from(requireContext(), artworkItemId, song.blurHash)
+                .palette()
+                .build()
+                .into(new CustomPaletteTarget(binding.playerCurrentImage) {
+                    @Override
+                    public void onColorReady(int color) {
+                        notifyColorChange(color);
+                    }
+                });
+    }
+
+    private void clearCurrentArtwork() {
+        if (binding == null) {
+            return;
+        }
+
+        binding.playerCurrentImage.setTag(R.id.current_album_artwork_song_id, null);
+        binding.playerCurrentImage.setTag(R.id.current_album_artwork_id, null);
+        binding.playerCurrentImage.setImageResource(R.drawable.default_album_art);
+    }
+
+    private void forceCurrentCoverFragment(AlbumCoverPagerAdapter adapter, int position) {
+        if (position < 0 || position >= adapter.getCount()) {
+            return;
+        }
+
+        Object currentCover = adapter.instantiateItem(binding.playerAlbumCoverViewPager, position);
+        adapter.setPrimaryItem(binding.playerAlbumCoverViewPager, position, currentCover);
+        adapter.finishUpdate(binding.playerAlbumCoverViewPager);
     }
 
     @Override
@@ -97,9 +184,14 @@ public class PlayerAlbumCoverFragment extends AbsMusicServiceFragment implements
     @Override
     public void onPageSelected(int position) {
         currentPosition = position;
-        ((AlbumCoverPagerAdapter) binding.playerAlbumCoverViewPager.getAdapter()).receiveColor(colorReceiver, position);
-        if (position != MusicPlayerRemote.getPosition()) {
+        AlbumCoverPagerAdapter adapter = (AlbumCoverPagerAdapter) binding.playerAlbumCoverViewPager.getAdapter();
+        if (adapter != null) {
+            adapter.receiveColor(colorReceiver, position);
+        }
+        if (!syncingCurrentItem && position != MusicPlayerRemote.getPosition()) {
             MusicPlayerRemote.playSongAt(position);
+        } else {
+            updateCurrentSongText();
         }
     }
 
@@ -150,6 +242,18 @@ public class PlayerAlbumCoverFragment extends AbsMusicServiceFragment implements
 
     private void notifyColorChange(int color) {
         if (callbacks != null) callbacks.onColorChanged(color);
+    }
+
+    private void updateCurrentSongText() {
+        // The playback controls render the single visible current-song title.
+        // Keep the cover focused on artwork so the full player does not show two current-song rows.
+        binding.playerSongInfo.setVisibility(View.GONE);
+    }
+
+    public void refreshCurrentSong() {
+        updatePlayingQueue();
+        updateCurrentArtwork();
+        updateCurrentSongText();
     }
 
     public void setCallbacks(Callbacks listener) {

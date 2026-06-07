@@ -1,5 +1,7 @@
 package com.dkanada.gramophone.util;
 
+import android.text.TextUtils;
+
 import com.dkanada.gramophone.App;
 import com.dkanada.gramophone.interfaces.MediaCallback;
 import com.dkanada.gramophone.model.Album;
@@ -28,6 +30,11 @@ public class QueryUtil {
     // will simplify the code for the getPlaylists method
     public static void getLibraries(MediaCallback<BaseItemDto> callback) {
         String id = App.getApiClient().getCurrentUserId();
+        if (TextUtils.isEmpty(id)) {
+            callback.onLoadMedia(new ArrayList<>());
+            return;
+        }
+
         App.getApiClient().GetUserViews(id, new Response<ItemsResult>() {
             @Override
             public void onResponse(ItemsResult result) {
