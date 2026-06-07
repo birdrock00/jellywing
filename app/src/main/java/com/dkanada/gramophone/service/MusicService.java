@@ -574,16 +574,27 @@ public class MusicService extends Service implements SharedPreferences.OnSharedP
 
         if (playingQueue != null && !playingQueue.isEmpty() && startPosition >= 0 && startPosition < playingQueue.size()) {
             queueManager.setPlayingQueueAndPosition(playingQueue, startPosition);
+            playback.setQueue(queueManager.getPlayingQueue(), queueManager.getPosition(), 0, true);
             if (startPlaying) play();
+            saveState();
+            notifyChange(STATE_CHANGED);
             notifyChange(META_CHANGED);
+            notifyChange(QUEUE_CHANGED);
         }
     }
 
     public void playSongAt(final int position) {
+        if (position < 0 || position >= queueManager.getPlayingQueue().size()) {
+            return;
+        }
+
         queueManager.setPosition(position);
-        playback.playSongAt(position);
+        playback.setQueue(queueManager.getPlayingQueue(), queueManager.getPosition(), 0, true);
         play();
+        saveState();
+        notifyChange(STATE_CHANGED);
         notifyChange(META_CHANGED);
+        notifyChange(QUEUE_CHANGED);
     }
 
     public void pause() {

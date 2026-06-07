@@ -28,9 +28,12 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      - name: Set build date
+      - name: Set release metadata
         id: build_date
-        run: echo "tag=$(TZ=America/Los_Angeles date +'%Y-%m-%d')" >> "$GITHUB_OUTPUT"
+        run: |
+          timestamp="$(TZ=America/Los_Angeles date +'%Y-%m-%d-%H%M%S')"
+          echo "tag=apk-${timestamp}" >> "$GITHUB_OUTPUT"
+          echo "title=Jellywing APK ${timestamp}" >> "$GITHUB_OUTPUT"
 
       - name: Restore signing key
         if: env.HAS_SIGNING_KEY == 'true'
@@ -65,10 +68,18 @@ jobs:
           path: artifacts/*.apk
           if-no-files-found: error
 
-      - name: Tag daily build
-        if: github.event_name == 'schedule'
+      - name: Create GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
-          git config user.name 'github-actions[bot]'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git tag -f "${{ steps.build_date.outputs.tag }}" "$GITHUB_SHA"
-          git push -f origin "refs/tags/${{ steps.build_date.outputs.tag }}"
+          notes_file="$(mktemp)"
+          {
+            echo "Automated Jellywing APK build."
+            echo
+            echo "Source commit: ${GITHUB_SHA}"
+            echo "Workflow run: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+          } > "$notes_file"
+          gh release create "${{ steps.build_date.outputs.tag }}" artifacts/*.apk \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "${{ steps.build_date.outputs.title }}" \
+            --notes-file "$notes_file"

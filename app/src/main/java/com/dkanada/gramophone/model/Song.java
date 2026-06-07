@@ -56,6 +56,71 @@ public class Song implements Parcelable {
         this.id = UUID.randomUUID().toString();
     }
 
+    public boolean hasDisplayableTitle() {
+        return !isBlank(getDisplayTitle());
+    }
+
+    public String getDisplayTitle() {
+        if (!isBlank(title)) {
+            return title.trim();
+        }
+
+        String filename = getFilenameWithoutExtension(path);
+        if (!isBlank(filename)) {
+            return filename;
+        }
+
+        if (!isBlank(id)) {
+            return id;
+        }
+
+        return "Unknown song";
+    }
+
+    public String getArtworkItemId() {
+        if (primary != null && !primary.isEmpty()) {
+            return primary;
+        }
+
+        if (albumId != null && !albumId.isEmpty()) {
+            return albumId;
+        }
+
+        return id;
+    }
+
+    private static String getFilenameWithoutExtension(String path) {
+        if (isBlank(path)) {
+            return null;
+        }
+
+        String normalized = path.trim();
+        int slash = Math.max(normalized.lastIndexOf('/'), normalized.lastIndexOf('\\'));
+        String filename = slash >= 0 ? normalized.substring(slash + 1) : normalized;
+        int dot = filename.lastIndexOf('.');
+        if (dot > 0) {
+            filename = filename.substring(0, dot);
+        }
+
+        return filename.trim();
+    }
+
+    private static boolean isBlank(String value) {
+        return value == null || value.trim().isEmpty();
+    }
+
+    private static String getPrimaryImageItemId(BaseItemDto itemDto) {
+        if (itemDto.getAlbumPrimaryImageTag() != null && itemDto.getAlbumId() != null) {
+            return itemDto.getAlbumId();
+        }
+
+        if (itemDto.getImageTags() != null && itemDto.getImageTags().containsKey(ImageType.Primary)) {
+            return itemDto.getId();
+        }
+
+        return itemDto.getParentPrimaryImageItemId();
+    }
+
     public Song(BaseItemDto itemDto) {
         this.id = itemDto.getId();
         this.title = itemDto.getName();
@@ -75,7 +140,7 @@ public class Song implements Parcelable {
             this.artistName = itemDto.getAlbumArtists().get(0).getName();
         }
 
-        this.primary = itemDto.getAlbumPrimaryImageTag() != null ? albumId : null;
+        this.primary = getPrimaryImageItemId(itemDto);
         if (itemDto.getImageBlurHashes() != null && itemDto.getImageBlurHashes().get(ImageType.Primary) != null) {
             this.blurHash = (String) itemDto.getImageBlurHashes().get(ImageType.Primary).values().toArray()[0];
         }

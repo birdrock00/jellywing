@@ -5,6 +5,7 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
 import android.os.Bundle;
+import android.text.TextUtils;
 
 import androidx.annotation.NonNull;
 import androidx.core.content.ContextCompat;
@@ -42,7 +43,7 @@ public abstract class AbsMusicContentActivity extends AbsMusicPanelActivity impl
 
         ContextCompat.registerReceiver(this, receiver, filter, ContextCompat.RECEIVER_NOT_EXPORTED);
 
-        if (App.getApiClient() == null) {
+        if (!hasAuthenticatedApiClient()) {
             startService(new Intent(this, LoginService.class));
         } else {
             onStateOnline();
@@ -53,9 +54,13 @@ public abstract class AbsMusicContentActivity extends AbsMusicPanelActivity impl
     protected void onResume() {
         super.onResume();
 
-        if (App.getApiClient() == null) {
+        if (!hasAuthenticatedApiClient()) {
             startService(new Intent(this, LoginService.class));
         }
+    }
+
+    private boolean hasAuthenticatedApiClient() {
+        return App.getApiClient() != null && !TextUtils.isEmpty(App.getApiClient().getCurrentUserId());
     }
 
     @Override

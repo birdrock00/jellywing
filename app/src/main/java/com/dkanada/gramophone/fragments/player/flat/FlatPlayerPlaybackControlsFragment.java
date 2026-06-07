@@ -22,6 +22,7 @@ import com.dkanada.gramophone.service.QueueManager;
 import com.dkanada.gramophone.R;
 import com.dkanada.gramophone.helper.MusicPlayerRemote;
 import com.dkanada.gramophone.helper.MusicProgressViewUpdateHelper;
+import com.dkanada.gramophone.helper.PlaybackControlState;
 import com.dkanada.gramophone.helper.PlayPauseButtonOnClickHandler;
 import com.dkanada.gramophone.interfaces.base.SimpleOnSeekbarChangeListener;
 import com.dkanada.gramophone.fragments.AbsMusicServiceFragment;
@@ -61,6 +62,7 @@ public class FlatPlayerPlaybackControlsFragment extends AbsMusicServiceFragment 
     @Override
     public void onViewCreated(@NonNull View view, Bundle savedInstanceState) {
         super.onViewCreated(view, savedInstanceState);
+        initializePlaybackControlColors();
         setUpMusicControllers();
         updateProgressTextColor();
     }
@@ -73,6 +75,8 @@ public class FlatPlayerPlaybackControlsFragment extends AbsMusicServiceFragment 
     @Override
     public void onResume() {
         super.onResume();
+        updateCurrentSongText();
+        updatePlayPauseDrawableState(false);
         progressViewUpdateHelper.start();
     }
 
@@ -84,9 +88,22 @@ public class FlatPlayerPlaybackControlsFragment extends AbsMusicServiceFragment 
 
     @Override
     public void onServiceConnected() {
+        updateCurrentSongText();
         updatePlayPauseDrawableState(false);
         updateRepeatState();
         updateShuffleState();
+    }
+
+    @Override
+    public void onQueueChanged() {
+        updateCurrentSongText();
+        updatePlayPauseDrawableState(false);
+    }
+
+    @Override
+    public void onPlayMetadataChanged() {
+        updateCurrentSongText();
+        updatePlayPauseDrawableState(false);
     }
 
     @Override
@@ -120,6 +137,11 @@ public class FlatPlayerPlaybackControlsFragment extends AbsMusicServiceFragment 
         updateProgressTextColor();
     }
 
+    private void initializePlaybackControlColors() {
+        lastPlaybackControlsColor = ThemeUtil.getPrimaryTextColor(requireContext(), false);
+        lastDisabledPlaybackControlsColor = ThemeUtil.getColorAlpha(requireContext(), R.color.color_text_primary_dark, 180);
+    }
+
     private void setUpPlayPauseButton() {
         playPauseDrawable = new PlayPauseDrawable(requireActivity());
         binding.playerPlayPauseButton.setImageDrawable(playPauseDrawable);
@@ -129,10 +151,18 @@ public class FlatPlayerPlaybackControlsFragment extends AbsMusicServiceFragment 
             binding.playerPlayPauseButton.setPivotX(binding.playerPlayPauseButton.getWidth() / 2f);
             binding.playerPlayPauseButton.setPivotY(binding.playerPlayPauseButton.getHeight() / 2f);
         });
+        updatePlayPauseDrawableState(false);
     }
 
     protected void updatePlayPauseDrawableState(boolean animate) {
-        if (MusicPlayerRemote.isPlaying()) {
+        if (playPauseDrawable == null || binding == null) {
+            return;
+        }
+
+        PlaybackControlState state = PlaybackControlState.fromPlaying(MusicPlayerRemote.isPlaying());
+        binding.playerPlayPauseButton.setContentDescription(getString(state.getContentDescriptionRes()));
+
+        if (state == PlaybackControlState.PAUSE) {
             playPauseDrawable.setPause(animate);
         } else {
             playPauseDrawable.setPlay(animate);
@@ -145,11 +175,21 @@ public class FlatPlayerPlaybackControlsFragment extends AbsMusicServiceFragment 
     }
 
     private void setUpMusicControllers() {
+        updateCurrentSongText();
         setUpPlayPauseButton();
         setUpPrevNext();
         setUpRepeatButton();
         setUpShuffleButton();
         setUpProgressSlider();
+    }
+
+    private void updateCurrentSongText() {
+        if (binding == null) {
+            return;
+        }
+
+        binding.playerSongTitle.setText(MusicUtil.getSongTitle(MusicPlayerRemote.getCurrentSong()));
+        binding.playerSongSubtitle.setText(MusicUtil.getSongInfoString(MusicPlayerRemote.getCurrentSong()));
     }
 
     private void setUpPrevNext() {
@@ -190,20 +230,31 @@ public class FlatPlayerPlaybackControlsFragment extends AbsMusicServiceFragment 
     }
 
     private void setUpRepeatButton() {
-        binding.playerRepeatButton.setOnClickListener(v -> MusicPlayerRemote.cycleRepeatMode());
+        binding.playerRepeatButton.setOnClickListener(v -> {
+            if (MusicPlayerRemote.cycleRepeatMode()) {
+                updateRepeatState();
+            }
+        });
+        updateRepeatState();
     }
 
     private void updateRepeatState() {
-        switch (MusicPlayerRemote.getRepeatMode()) {
+        int repeatMode = MusicPlayerRemote.getRepeatMode();
+        binding.playerRepeatButton.setSelected(repeatMode != QueueManager.REPEAT_MODE_NONE);
+
+        switch (repeatMode) {
             case QueueManager.REPEAT_MODE_NONE:
+                binding.playerRepeatButton.setContentDescription(getString(R.string.action_repeat_off));
                 binding.playerRepeatButton.setImageResource(R.drawable.ic_repeat_white_24dp);
                 binding.playerRepeatButton.setColorFilter(lastDisabledPlaybackControlsColor, PorterDuff.Mode.SRC_IN);
                 break;
             case QueueManager.REPEAT_MODE_ALL:
+                binding.playerRepeatButton.setContentDescription(getString(R.string.action_repeat_on));
                 binding.playerRepeatButton.setImageResource(R.drawable.ic_repeat_white_24dp);
                 binding.playerRepeatButton.setColorFilter(lastPlaybackControlsColor, PorterDuff.Mode.SRC_IN);
                 break;
             case QueueManager.REPEAT_MODE_THIS:
+                binding.playerRepeatButton.setContentDescription(getString(R.string.action_repeat_one));
                 binding.playerRepeatButton.setImageResource(R.drawable.ic_repeat_one_white_24dp);
                 binding.playerRepeatButton.setColorFilter(lastPlaybackControlsColor, PorterDuff.Mode.SRC_IN);
                 break;
@@ -211,6 +262,7 @@ public class FlatPlayerPlaybackControlsFragment extends AbsMusicServiceFragment 
     }
 
     public void show() {
+        updatePlayPauseDrawableState(false);
         if (hidden) {
             if (musicControllerAnimationSet == null) {
                 TimeInterpolator interpolator = new FastOutSlowInInterpolator();
@@ -289,6 +341,8 @@ public class FlatPlayerPlaybackControlsFragment extends AbsMusicServiceFragment 
 
     @Override
     public void onUpdateProgressViews(int progress, int total) {
+        updateCurrentSongText();
+        updatePlayPauseDrawableState(false);
         binding.playerBufferingIndicator.setVisibility(MusicPlayerRemote.isLoading() ? View.VISIBLE : View.GONE);
 
         binding.playerProgressSlider.setMax(total);

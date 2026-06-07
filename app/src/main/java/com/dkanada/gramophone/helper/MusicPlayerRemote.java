@@ -184,7 +184,17 @@ public class MusicPlayerRemote {
 
     public static Song getCurrentSong() {
         if (musicService != null && musicService.queueManager != null) {
-            return musicService.queueManager.getCurrentSong();
+            Song currentSong = musicService.queueManager.getCurrentSong();
+            if (currentSong != null) {
+                return currentSong;
+            }
+
+            List<Song> playingQueue = musicService.queueManager.getPlayingQueue();
+            if (!playingQueue.isEmpty()) {
+                int position = musicService.queueManager.getPosition();
+                int fallbackPosition = Math.max(0, Math.min(position, playingQueue.size() - 1));
+                return playingQueue.get(fallbackPosition);
+            }
         }
 
         return null;
@@ -257,6 +267,15 @@ public class MusicPlayerRemote {
     public static boolean cycleRepeatMode() {
         if (musicService != null && musicService.queueManager != null) {
             musicService.queueManager.cycleRepeatMode();
+            return true;
+        }
+
+        return false;
+    }
+
+    public static boolean toggleRepeatMode() {
+        if (musicService != null && musicService.queueManager != null) {
+            musicService.queueManager.toggleRepeatMode();
             return true;
         }
 
@@ -341,6 +360,20 @@ public class MusicPlayerRemote {
 
             final String toast = songs.size() == 1 ? musicService.getResources().getString(R.string.added_title_to_queue) : musicService.getResources().getString(R.string.added_x_titles_to_queue, songs.size());
             Toast.makeText(musicService, toast, Toast.LENGTH_SHORT).show();
+            return true;
+        }
+
+        return false;
+    }
+
+    public static boolean enqueueSilently(@NonNull List<Song> songs) {
+        if (musicService != null && musicService.queueManager != null && !songs.isEmpty()) {
+            if (getPlayingQueue().size() > 0) {
+                musicService.queueManager.addSongs(songs);
+            } else {
+                openQueue(songs, 0, false);
+            }
+
             return true;
         }
 

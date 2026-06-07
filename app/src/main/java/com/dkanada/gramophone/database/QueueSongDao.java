@@ -39,8 +39,16 @@ public abstract class QueueSongDao {
     @Transaction
     public void setQueue(List<Song> songs, int queue) {
         List<QueueSong> queueSongs = new ArrayList<>();
+        if (songs == null) {
+            insertQueueSongs(queueSongs);
+            return;
+        }
+
         for (int i = 0; i < songs.size(); i++) {
-            queueSongs.add(new QueueSong(songs.get(i).id, i, queue));
+            Song song = songs.get(i);
+            if (song != null && song.id != null) {
+                queueSongs.add(new QueueSong(song.id, queueSongs.size(), queue));
+            }
         }
 
         insertQueueSongs(queueSongs);
@@ -50,10 +58,25 @@ public abstract class QueueSongDao {
     public void updateQueues(List<Song> playingQueue, List<Song> shuffledQueue) {
         // copy queues by value to avoid concurrent modification exceptions from database
         App.getDatabase().songDao().deleteSongs();
-        App.getDatabase().songDao().insertSongs(new ArrayList<>(playingQueue));
+        App.getDatabase().songDao().insertSongs(validSongs(playingQueue));
 
         deleteQueueSongs();
-        setQueue(new ArrayList<>(playingQueue), 0);
-        setQueue(new ArrayList<>(shuffledQueue), 1);
+        setQueue(validSongs(playingQueue), 0);
+        setQueue(validSongs(shuffledQueue), 1);
+    }
+
+    private List<Song> validSongs(List<Song> songs) {
+        List<Song> validSongs = new ArrayList<>();
+        if (songs == null) {
+            return validSongs;
+        }
+
+        for (Song song : songs) {
+            if (song != null && song.id != null) {
+                validSongs.add(song);
+            }
+        }
+
+        return validSongs;
     }
 }

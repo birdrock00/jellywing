@@ -29,6 +29,7 @@ import com.dkanada.gramophone.R;
 import com.dkanada.gramophone.adapter.base.MediaEntryViewHolder;
 import com.dkanada.gramophone.adapter.song.PlayingQueueAdapter;
 import com.dkanada.gramophone.dialogs.SongShareDialog;
+import com.dkanada.gramophone.glide.CustomGlideRequest;
 import com.dkanada.gramophone.helper.MusicPlayerRemote;
 import com.dkanada.gramophone.helper.menu.SongMenuHelper;
 import com.dkanada.gramophone.model.Song;
@@ -37,6 +38,7 @@ import com.dkanada.gramophone.fragments.player.AbsPlayerFragment;
 import com.dkanada.gramophone.fragments.player.PlayerAlbumCoverFragment;
 import com.dkanada.gramophone.util.ImageUtil;
 import com.dkanada.gramophone.util.MusicUtil;
+import com.dkanada.gramophone.util.ShortcutUtil;
 import com.dkanada.gramophone.util.Util;
 import com.dkanada.gramophone.util.ViewUtil;
 import com.dkanada.gramophone.views.WidthFitSquareLayout;
@@ -44,6 +46,7 @@ import com.google.android.material.color.MaterialColors;
 import com.sothree.slidinguppanel.SlidingUpPanelLayout;
 
 public class FlatPlayerFragment extends AbsPlayerFragment implements PlayerAlbumCoverFragment.Callbacks, SlidingUpPanelLayout.PanelSlideListener {
+    private static final int RECOMMENDED_UP_NEXT_LIMIT = 20;
 
     private FragmentFlatPlayerBinding binding;
 
@@ -60,6 +63,7 @@ public class FlatPlayerFragment extends AbsPlayerFragment implements PlayerAlbum
     private RecyclerViewDragDropManager recyclerViewDragDropManager;
 
     private Impl impl;
+    private boolean loadingRecommendedUpNext;
 
     @Override
     public View onCreateView(@NonNull LayoutInflater inflater, ViewGroup container, Bundle savedInstanceState) {
@@ -137,6 +141,7 @@ public class FlatPlayerFragment extends AbsPlayerFragment implements PlayerAlbum
     public void onResume() {
         super.onResume();
         checkToggleToolbar(binding.toolbarContainer);
+        refreshVisiblePlayerState();
     }
 
     @Override
@@ -154,17 +159,21 @@ public class FlatPlayerFragment extends AbsPlayerFragment implements PlayerAlbum
 
         updateCurrentSong();
         updateIsFavorite();
-        updateQueuePosition();
+        updateQueue();
     }
 
     @Override
     public void onQueueChanged() {
         updateQueue();
+        if (MusicPlayerRemote.getCurrentSong() != null) {
+            updateCurrentSong();
+        }
     }
 
     private void updateQueue() {
         playingQueueAdapter.swapDataSet(MusicPlayerRemote.getPlayingQueue(), MusicPlayerRemote.getPosition());
         binding.playerQueueSubHeader.setText(getUpNextAndQueueTime());
+        ensureRecommendedUpNext();
         if (binding.playerSlidingLayout == null || binding.playerSlidingLayout.getPanelState() == SlidingUpPanelLayout.PanelState.COLLAPSED) {
             resetToCurrentPosition();
         }
@@ -173,13 +182,67 @@ public class FlatPlayerFragment extends AbsPlayerFragment implements PlayerAlbum
     private void updateQueuePosition() {
         playingQueueAdapter.setCurrent(MusicPlayerRemote.getPosition());
         binding.playerQueueSubHeader.setText(getUpNextAndQueueTime());
+        ensureRecommendedUpNext();
         if (binding.playerSlidingLayout == null || binding.playerSlidingLayout.getPanelState() == SlidingUpPanelLayout.PanelState.COLLAPSED) {
             resetToCurrentPosition();
         }
     }
 
+    private void ensureRecommendedUpNext() {
+        if (loadingRecommendedUpNext || MusicPlayerRemote.getCurrentSong() == null || hasUpcomingSongs()) {
+            return;
+        }
+
+        loadingRecommendedUpNext = true;
+        ShortcutUtil.getInstantMix(MusicPlayerRemote.getCurrentSong(), RECOMMENDED_UP_NEXT_LIMIT, songs -> {
+            loadingRecommendedUpNext = false;
+            Song currentSong = MusicPlayerRemote.getCurrentSong();
+            if (currentSong == null || hasUpcomingSongs()) {
+                return;
+            }
+
+            java.util.List<Song> upNext = new java.util.ArrayList<>();
+            for (Song song : songs) {
+                if (isUsableRecommendedUpNextSong(song, currentSong)) {
+                    upNext.add(song);
+                }
+
+                if (upNext.size() >= RECOMMENDED_UP_NEXT_LIMIT) {
+                    break;
+                }
+            }
+
+            if (MusicPlayerRemote.enqueueSilently(upNext)) {
+                binding.playerRecyclerView.post(this::updateQueue);
+            }
+        });
+    }
+
+    private boolean hasUpcomingSongs() {
+        return MusicPlayerRemote.getPosition() >= 0 && MusicPlayerRemote.getPosition() < MusicPlayerRemote.getPlayingQueue().size() - 1;
+    }
+
+    private boolean isUsableRecommendedUpNextSong(Song song, Song currentSong) {
+        return song != null
+                && song.id != null
+                && !song.id.trim().isEmpty()
+                && !song.id.equals(currentSong.id)
+                && song.hasDisplayableTitle();
+    }
+
     private void updateCurrentSong() {
         impl.updateCurrentSong(MusicPlayerRemote.getCurrentSong());
+        if (playerAlbumCoverFragment != null) {
+            playerAlbumCoverFragment.refreshCurrentSong();
+        }
+    }
+
+    private void refreshVisiblePlayerState() {
+        updateQueue();
+        if (MusicPlayerRemote.getCurrentSong() != null) {
+            updateCurrentSong();
+            updateIsFavorite();
+        }
     }
 
     private void setUpSubFragments() {
@@ -217,7 +280,7 @@ public class FlatPlayerFragment extends AbsPlayerFragment implements PlayerAlbum
 
         recyclerViewDragDropManager.attachRecyclerView(binding.playerRecyclerView);
 
-        layoutManager.scrollToPositionWithOffset(MusicPlayerRemote.getPosition() + 1, 0);
+        resetToCurrentPosition();
     }
 
     private void updateIsFavorite() {
@@ -313,7 +376,7 @@ public class FlatPlayerFragment extends AbsPlayerFragment implements PlayerAlbum
 
     private void resetToCurrentPosition() {
         binding.playerRecyclerView.stopScroll();
-        layoutManager.scrollToPositionWithOffset(MusicPlayerRemote.getPosition() + 1, 0);
+        layoutManager.scrollToPositionWithOffset(0, 0);
     }
 
     interface Impl {
@@ -359,12 +422,10 @@ public class FlatPlayerFragment extends AbsPlayerFragment implements PlayerAlbum
         @Override
         public void init() {
             currentSongViewHolder = new MediaEntryViewHolder(fragment.getView().findViewById(R.id.current_song));
+            currentSongViewHolder.itemView.setVisibility(View.GONE);
 
             currentSongViewHolder.separator.setVisibility(View.VISIBLE);
             currentSongViewHolder.shortSeparator.setVisibility(View.GONE);
-            currentSongViewHolder.image.setScaleType(ImageView.ScaleType.CENTER);
-            currentSongViewHolder.image.setColorFilter(ThemeUtil.getColorResource(fragment.getActivity(), R.attr.iconColor), PorterDuff.Mode.SRC_IN);
-            currentSongViewHolder.image.setImageResource(R.drawable.ic_volume_up_white_24dp);
             currentSongViewHolder.itemView.setOnClickListener(v -> {
                 if (binding.playerSlidingLayout.getPanelState() == SlidingUpPanelLayout.PanelState.COLLAPSED) {
                     binding.playerSlidingLayout.setPanelState(SlidingUpPanelLayout.PanelState.EXPANDED);
@@ -417,9 +478,23 @@ public class FlatPlayerFragment extends AbsPlayerFragment implements PlayerAlbum
 
         @Override
         public void updateCurrentSong(Song song) {
+            if (song == null) {
+                currentSong = null;
+                currentSongViewHolder.title.setText(MusicUtil.getSongTitle(null));
+                currentSongViewHolder.text.setText("");
+                currentSongViewHolder.image.setImageResource(R.drawable.default_album_art);
+                return;
+            }
+
             currentSong = song;
-            currentSongViewHolder.title.setText(song.title);
+            currentSongViewHolder.title.setText(MusicUtil.getSongTitle(song));
             currentSongViewHolder.text.setText(MusicUtil.getSongInfoString(song));
+            currentSongViewHolder.image.clearColorFilter();
+            currentSongViewHolder.image.setScaleType(ImageView.ScaleType.FIT_CENTER);
+            CustomGlideRequest.Builder
+                    .from(fragment.requireContext(), song.getArtworkItemId(), song.blurHash)
+                    .build()
+                    .into(currentSongViewHolder.image);
         }
 
         @Override
@@ -448,7 +523,7 @@ public class FlatPlayerFragment extends AbsPlayerFragment implements PlayerAlbum
 
         @Override
         public void updateCurrentSong(Song song) {
-            binding.playerToolbar.setTitle(song.title);
+            binding.playerToolbar.setTitle(MusicUtil.getSongTitle(song));
             binding.playerToolbar.setSubtitle(MusicUtil.getSongInfoString(song));
         }
 

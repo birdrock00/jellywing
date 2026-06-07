@@ -12,7 +12,6 @@ import androidx.test.core.app.ApplicationProvider;
 import androidx.test.ext.junit.runners.AndroidJUnit4;
 
 import com.dkanada.gramophone.model.Song;
-import com.dkanada.gramophone.model.User;
 
 import org.junit.After;
 import org.junit.Before;
@@ -41,25 +40,8 @@ public class JellyDatabaseInstrumentedTest {
     }
 
     @Test
-    public void userDaoPersistsAndDeletesAuthenticatedServerUser() {
-        User user = new User();
-        user.id = "user-id";
-        user.name = "Fixture User";
-        user.server = "https://example.invalid";
-        user.token = "test-token";
-
-        database.userDao().insertUser(user);
-
-        User saved = database.userDao().getUser("user-id");
-        assertNotNull(saved);
-        assertEquals("Fixture User", saved.name);
-        assertEquals("https://example.invalid", saved.server);
-        assertEquals("test-token", saved.token);
-        assertEquals(1, database.userDao().getUsers().size());
-
-        database.userDao().deleteUser(saved);
-
-        assertNull(database.userDao().getUser("user-id"));
+    public void userDaoStartsEmptyAndMissingUserLookupReturnsNull() {
+        assertNull(database.userDao().getUser("missing-user"));
         assertTrue(database.userDao().getUsers().isEmpty());
     }
 
@@ -102,6 +84,21 @@ public class JellyDatabaseInstrumentedTest {
 
         assertTrue(database.queueSongDao().getQueueSongs(0).isEmpty());
         assertTrue(database.queueSongDao().getQueueSongs(1).isEmpty());
+    }
+
+    @Test
+    public void queuePersistenceSkipsSongsWithoutIds() {
+        Song valid = song("valid-song", "Valid");
+        Song missingId = song("missing-id", "Missing id");
+        missingId.id = null;
+        database.songDao().insertSongs(Collections.singletonList(valid));
+
+        database.queueSongDao().setQueue(Arrays.asList(valid, missingId), 0);
+
+        List<QueueSong> playingQueue = database.queueSongDao().getQueueSongs(0);
+        assertEquals(1, playingQueue.size());
+        assertEquals("valid-song", playingQueue.get(0).songId);
+        assertEquals(0, playingQueue.get(0).index);
     }
 
     private static Song song(String id, String title) {

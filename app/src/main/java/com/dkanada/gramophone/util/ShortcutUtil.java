@@ -12,6 +12,7 @@ import org.jellyfin.apiclient.model.querying.ItemFields;
 import org.jellyfin.apiclient.model.querying.ItemFilter;
 import org.jellyfin.apiclient.model.querying.ItemQuery;
 import org.jellyfin.apiclient.model.querying.ItemsResult;
+import org.jellyfin.apiclient.model.querying.SimilarItemsQuery;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -48,6 +49,32 @@ public class ShortcutUtil {
         getSongs(query, callback);
     }
 
+    public static void getInstantMix(Song song, int limit, MediaCallback<Song> callback) {
+        if (song == null || song.id == null || song.id.trim().isEmpty()) {
+            callback.onLoadMedia(new ArrayList<>());
+            return;
+        }
+
+        SimilarItemsQuery query = new SimilarItemsQuery();
+        query.setId(song.id);
+        query.setUserId(App.getApiClient().getCurrentUserId());
+        query.setLimit(limit);
+        query.setFields(new ItemFields[]{ItemFields.MediaSources});
+
+        App.getApiClient().GetInstantMixFromItem(query, new Response<ItemsResult>() {
+            @Override
+            public void onResponse(ItemsResult result) {
+                callback.onLoadMedia(songsFromItemsResult(result));
+            }
+
+            @Override
+            public void onError(Exception exception) {
+                exception.printStackTrace();
+                callback.onLoadMedia(new ArrayList<>());
+            }
+        });
+    }
+
     public static void getSongs(ItemQuery query, MediaCallback<Song> callback) {
         query.setIncludeItemTypes(new String[]{"Audio"});
         query.setFields(new ItemFields[]{ItemFields.MediaSources});
@@ -59,18 +86,26 @@ public class ShortcutUtil {
         App.getApiClient().GetItemsAsync(query, new Response<ItemsResult>() {
             @Override
             public void onResponse(ItemsResult result) {
-                List<Song> songs = new ArrayList<>();
-                for (BaseItemDto itemDto : result.getItems()) {
-                    songs.add(new Song(itemDto));
-                }
-
-                callback.onLoadMedia(songs);
+                callback.onLoadMedia(songsFromItemsResult(result));
             }
 
             @Override
             public void onError(Exception exception) {
                 exception.printStackTrace();
+                callback.onLoadMedia(new ArrayList<>());
             }
         });
+    }
+
+    private static List<Song> songsFromItemsResult(ItemsResult result) {
+        List<Song> songs = new ArrayList<>();
+        if (result == null || result.getItems() == null) {
+            return songs;
+        }
+
+        for (BaseItemDto itemDto : result.getItems()) {
+            songs.add(new Song(itemDto));
+        }
+        return songs;
     }
 }
