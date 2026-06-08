@@ -146,7 +146,7 @@ public class FlatPlayerFragment extends AbsPlayerFragment implements PlayerAlbum
 
     @Override
     public void onServiceConnected() {
-        if (MusicPlayerRemote.getCurrentSong() == null) return;
+        if (!isPlayerViewReady() || MusicPlayerRemote.getCurrentSong() == null) return;
 
         updateQueue();
         updateCurrentSong();
@@ -155,7 +155,7 @@ public class FlatPlayerFragment extends AbsPlayerFragment implements PlayerAlbum
 
     @Override
     public void onPlayMetadataChanged() {
-        if (MusicPlayerRemote.getCurrentSong() == null) return;
+        if (!isPlayerViewReady() || MusicPlayerRemote.getCurrentSong() == null) return;
 
         updateCurrentSong();
         updateIsFavorite();
@@ -165,9 +165,17 @@ public class FlatPlayerFragment extends AbsPlayerFragment implements PlayerAlbum
     @Override
     public void onQueueChanged() {
         updateQueue();
-        if (MusicPlayerRemote.getCurrentSong() != null) {
+        if (isPlayerViewReady() && MusicPlayerRemote.getCurrentSong() != null) {
             updateCurrentSong();
         }
+    }
+
+    private boolean isPlayerViewReady() {
+        return binding != null
+                && impl != null
+                && playingQueueAdapter != null
+                && playbackControlsFragment != null
+                && playerAlbumCoverFragment != null;
     }
 
     private void updateQueue() {

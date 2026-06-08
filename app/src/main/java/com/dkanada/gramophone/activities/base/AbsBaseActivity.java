@@ -7,6 +7,7 @@ import android.content.pm.PackageManager;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
+import android.os.Looper;
 import android.os.PowerManager;
 import android.provider.Settings;
 import android.view.MenuItem;
@@ -31,6 +32,7 @@ public abstract class AbsBaseActivity extends AbsThemeActivity {
 
     private List<String> permissions;
     private boolean allowed;
+    private final Handler handler = new Handler(Looper.getMainLooper());
 
     @Override
     @TargetApi(Build.VERSION_CODES.M)
@@ -58,20 +60,28 @@ public abstract class AbsBaseActivity extends AbsThemeActivity {
                 .setTitle(R.string.battery_optimizations_title)
                 .setPositiveButton(R.string.disable, (dialog, id) -> requestBatteryOptimization());
 
-            new Handler().postDelayed(builder::show, 2000);
+            handler.postDelayed(() -> showDialogIfAlive(builder), 2000);
         } else if (permissions.size() != 0 && ActivityCompat.shouldShowRequestPermissionRationale(this, permissions.get(0))) {
             builder.setMessage(getPermissionMessage())
                 .setTitle(R.string.permissions_denied)
                 .setPositiveButton(R.string.action_grant, (dialog, id) -> requestPermissions());
 
-            new Handler().postDelayed(builder::show, 2000);
+            handler.postDelayed(() -> showDialogIfAlive(builder), 2000);
         } else if (!checkPermissions()) {
             builder.setMessage(getPermissionMessage())
                 .setTitle(R.string.permissions_denied)
                 .setPositiveButton(R.string.action_settings, (dialog, id) -> NavigationUtil.openSettings(this));
 
-            new Handler().postDelayed(builder::show, 2000);
+            handler.postDelayed(() -> showDialogIfAlive(builder), 2000);
         }
+    }
+
+    private void showDialogIfAlive(AlertDialog.Builder builder) {
+        if (isFinishing() || isDestroyed()) {
+            return;
+        }
+
+        builder.show();
     }
 
     @Override

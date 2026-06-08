@@ -117,6 +117,10 @@ public abstract class AbsMusicPanelActivity extends AbsMusicServiceActivity impl
     public void onServiceConnected() {
         super.onServiceConnected();
 
+        if (binding == null) {
+            return;
+        }
+
         // don't call hideBottomBar(true) here as it causes a bug with the SlidingUpPanelLayout
         if (!MusicPlayerRemote.getPlayingQueue().isEmpty()) {
             binding.slidingLayout.getViewTreeObserver().addOnGlobalLayoutListener(new ViewTreeObserver.OnGlobalLayoutListener() {
@@ -207,6 +211,10 @@ public abstract class AbsMusicPanelActivity extends AbsMusicServiceActivity impl
     }
 
     public void hideBottomBar(final boolean hide) {
+        if (binding == null) {
+            return;
+        }
+
         if (hide) {
             binding.slidingLayout.setPanelHeight(0);
             collapsePanel();
