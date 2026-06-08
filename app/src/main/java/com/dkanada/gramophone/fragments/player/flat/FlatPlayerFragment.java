@@ -171,6 +171,10 @@ public class FlatPlayerFragment extends AbsPlayerFragment implements PlayerAlbum
     }
 
     private void updateQueue() {
+        if (binding == null || playingQueueAdapter == null) {
+            return;
+        }
+
         playingQueueAdapter.swapDataSet(MusicPlayerRemote.getPlayingQueue(), MusicPlayerRemote.getPosition());
         binding.playerQueueSubHeader.setText(getUpNextAndQueueTime());
         ensureRecommendedUpNext();
@@ -180,6 +184,10 @@ public class FlatPlayerFragment extends AbsPlayerFragment implements PlayerAlbum
     }
 
     private void updateQueuePosition() {
+        if (binding == null || playingQueueAdapter == null) {
+            return;
+        }
+
         playingQueueAdapter.setCurrent(MusicPlayerRemote.getPosition());
         binding.playerQueueSubHeader.setText(getUpNextAndQueueTime());
         ensureRecommendedUpNext();
