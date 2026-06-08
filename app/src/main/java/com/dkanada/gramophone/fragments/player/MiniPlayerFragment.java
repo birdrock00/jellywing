@@ -154,6 +154,10 @@ public class MiniPlayerFragment extends AbsMusicServiceFragment implements Music
     }
 
     protected void updatePlayPauseDrawableState(boolean animate) {
+        if (miniPlayerPlayPauseDrawable == null || binding == null) {
+            return;
+        }
+
         if (MusicPlayerRemote.isPlaying()) {
             miniPlayerPlayPauseDrawable.setPause(animate);
         } else {

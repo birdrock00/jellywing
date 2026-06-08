@@ -84,6 +84,20 @@ public class UpNextStructureRegressionTest {
     }
 
     @Test
+    public void miniPlayerIgnoresServiceCallbacksBeforeViewStateIsReady() throws IOException {
+        String source = readProjectFile("app/src/main/java/com/dkanada/gramophone/fragments/player/MiniPlayerFragment.java");
+
+        assertTrue(source.contains("if (miniPlayerPlayPauseDrawable == null || binding == null)"));
+        assertTrue(source.contains("return;\n        }\n\n        if (MusicPlayerRemote.isPlaying())"));
+    }
+
+    @Test
+    public void playerQueueCallbacksWaitForRecyclerAdapterSetup() throws IOException {
+        assertQueueCallbacksWaitForAdapter("app/src/main/java/com/dkanada/gramophone/fragments/player/card/CardPlayerFragment.java");
+        assertQueueCallbacksWaitForAdapter("app/src/main/java/com/dkanada/gramophone/fragments/player/flat/FlatPlayerFragment.java");
+    }
+
+    @Test
     public void musicServiceStartsItselfOnlyWhenPlaybackBegins() throws IOException {
         String source = readProjectFile("app/src/main/java/com/dkanada/gramophone/service/MusicService.java");
 
@@ -124,6 +138,14 @@ public class UpNextStructureRegressionTest {
         assertTrue(source.contains("isUsableRecommendedUpNextSong(song, currentSong)"));
         assertTrue(source.contains("MusicPlayerRemote.enqueueSilently(upNext)"));
         assertTrue(source.contains("binding.playerRecyclerView.post(this::updateQueue);"));
+    }
+
+    private static void assertQueueCallbacksWaitForAdapter(String relativePath) throws IOException {
+        String source = readProjectFile(relativePath);
+
+        assertTrue(source.contains("if (binding == null || playingQueueAdapter == null)"));
+        assertTrue(source.contains("return;\n        }\n\n        playingQueueAdapter.swapDataSet"));
+        assertTrue(source.contains("return;\n        }\n\n        playingQueueAdapter.setCurrent"));
     }
 
     @Test
