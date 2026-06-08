@@ -92,9 +92,26 @@ public class UpNextStructureRegressionTest {
     }
 
     @Test
+    public void musicPanelIgnoresMiniPlayerCallbacksBeforePanelBindingIsReady() throws IOException {
+        String source = readProjectFile("app/src/main/java/com/dkanada/gramophone/activities/base/AbsMusicPanelActivity.java");
+
+        assertTrue(source.contains("public void hideBottomBar(final boolean hide)"));
+        assertTrue(source.contains("if (binding == null)"));
+        assertTrue(source.contains("return;\n        }\n\n        if (hide)"));
+        assertTrue(source.contains("public void onServiceConnected()"));
+        assertTrue(source.contains("super.onServiceConnected();\n\n        if (binding == null)"));
+    }
+
+    @Test
     public void playerQueueCallbacksWaitForRecyclerAdapterSetup() throws IOException {
         assertQueueCallbacksWaitForAdapter("app/src/main/java/com/dkanada/gramophone/fragments/player/card/CardPlayerFragment.java");
         assertQueueCallbacksWaitForAdapter("app/src/main/java/com/dkanada/gramophone/fragments/player/flat/FlatPlayerFragment.java");
+    }
+
+    @Test
+    public void playerServiceCallbacksWaitForFullViewSetup() throws IOException {
+        assertServiceCallbacksWaitForPlayerView("app/src/main/java/com/dkanada/gramophone/fragments/player/card/CardPlayerFragment.java");
+        assertServiceCallbacksWaitForPlayerView("app/src/main/java/com/dkanada/gramophone/fragments/player/flat/FlatPlayerFragment.java");
     }
 
     @Test
@@ -146,6 +163,16 @@ public class UpNextStructureRegressionTest {
         assertTrue(source.contains("if (binding == null || playingQueueAdapter == null)"));
         assertTrue(source.contains("return;\n        }\n\n        playingQueueAdapter.swapDataSet"));
         assertTrue(source.contains("return;\n        }\n\n        playingQueueAdapter.setCurrent"));
+    }
+
+    private static void assertServiceCallbacksWaitForPlayerView(String relativePath) throws IOException {
+        String source = readProjectFile(relativePath);
+
+        assertTrue(source.contains("if (!isPlayerViewReady() || MusicPlayerRemote.getCurrentSong() == null) return;"));
+        assertTrue(source.contains("private boolean isPlayerViewReady()"));
+        assertTrue(source.contains("&& playingQueueAdapter != null"));
+        assertTrue(source.contains("&& playbackControlsFragment != null"));
+        assertTrue(source.contains("&& playerAlbumCoverFragment != null"));
     }
 
     @Test
