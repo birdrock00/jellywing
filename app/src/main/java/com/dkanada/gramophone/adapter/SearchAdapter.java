@@ -11,6 +11,7 @@ import androidx.appcompat.app.AppCompatActivity;
 import androidx.recyclerview.widget.RecyclerView;
 
 import com.dkanada.gramophone.R;
+import com.dkanada.gramophone.activities.base.AbsMusicServiceActivity;
 import com.dkanada.gramophone.adapter.base.MediaEntryViewHolder;
 import com.dkanada.gramophone.glide.CustomGlideRequest;
 import com.dkanada.gramophone.helper.MusicPlayerRemote;
@@ -159,6 +160,11 @@ public class SearchAdapter extends RecyclerView.Adapter<SearchAdapter.ViewHolder
                 case SONG:
                     List<Song> playList = getSongResults();
                     MusicPlayerRemote.openQueue(playList, playList.indexOf(item), true);
+                    if (activity instanceof AbsMusicServiceActivity) {
+                        AbsMusicServiceActivity musicActivity = (AbsMusicServiceActivity) activity;
+                        musicActivity.onQueueChanged();
+                        musicActivity.onPlayMetadataChanged();
+                    }
                     break;
             }
         }

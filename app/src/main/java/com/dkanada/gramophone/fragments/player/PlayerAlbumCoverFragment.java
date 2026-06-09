@@ -2,6 +2,7 @@ package com.dkanada.gramophone.fragments.player;
 
 import android.animation.Animator;
 import android.annotation.SuppressLint;
+import android.graphics.drawable.Drawable;
 import android.os.Bundle;
 import android.view.GestureDetector;
 import android.view.LayoutInflater;
@@ -14,11 +15,13 @@ import android.view.animation.DecelerateInterpolator;
 import androidx.annotation.NonNull;
 import androidx.viewpager.widget.ViewPager;
 
+import com.bumptech.glide.request.transition.Transition;
 import com.dkanada.gramophone.adapter.AlbumCoverPagerAdapter;
 import com.dkanada.gramophone.R;
 import com.dkanada.gramophone.databinding.FragmentPlayerAlbumCoverBinding;
 import com.dkanada.gramophone.glide.CustomGlideRequest;
 import com.dkanada.gramophone.glide.CustomPaletteTarget;
+import com.dkanada.gramophone.glide.palette.BitmapPaletteWrapper;
 import com.dkanada.gramophone.helper.MusicPlayerRemote;
 import com.dkanada.gramophone.interfaces.base.SimpleAnimatorListener;
 import com.dkanada.gramophone.fragments.AbsMusicServiceFragment;
@@ -26,6 +29,7 @@ import com.dkanada.gramophone.model.Song;
 import com.dkanada.gramophone.util.ViewUtil;
 
 import java.util.List;
+import java.util.Objects;
 
 public class PlayerAlbumCoverFragment extends AbsMusicServiceFragment implements ViewPager.OnPageChangeListener {
     public static final int VISIBILITY_ANIM_DURATION = 300;
@@ -149,12 +153,45 @@ public class PlayerAlbumCoverFragment extends AbsMusicServiceFragment implements
                 .from(requireContext(), artworkItemId, song.blurHash)
                 .palette()
                 .build()
-                .into(new CustomPaletteTarget(binding.playerCurrentImage) {
-                    @Override
-                    public void onColorReady(int color) {
-                        notifyColorChange(color);
-                    }
-                });
+                .into(new CurrentArtworkTarget(binding.playerCurrentImage, song.id, artworkItemId));
+    }
+
+    private class CurrentArtworkTarget extends CustomPaletteTarget {
+        private final String songId;
+        private final String artworkItemId;
+
+        private CurrentArtworkTarget(android.widget.ImageView view, String songId, String artworkItemId) {
+            super(view);
+            this.songId = songId;
+            this.artworkItemId = artworkItemId;
+        }
+
+        @Override
+        public void onLoadFailed(Drawable errorDrawable) {
+            if (isCurrentRequest()) {
+                super.onLoadFailed(errorDrawable);
+            }
+        }
+
+        @Override
+        public void onResourceReady(@NonNull BitmapPaletteWrapper resource, Transition<? super BitmapPaletteWrapper> glideAnimation) {
+            if (isCurrentRequest()) {
+                super.onResourceReady(resource, glideAnimation);
+            }
+        }
+
+        @Override
+        public void onColorReady(int color) {
+            if (isCurrentRequest()) {
+                notifyColorChange(color);
+            }
+        }
+
+        private boolean isCurrentRequest() {
+            return binding != null
+                    && Objects.equals(songId, binding.playerCurrentImage.getTag(R.id.current_album_artwork_song_id))
+                    && Objects.equals(artworkItemId, binding.playerCurrentImage.getTag(R.id.current_album_artwork_id));
+        }
     }
 
     private void clearCurrentArtwork() {
