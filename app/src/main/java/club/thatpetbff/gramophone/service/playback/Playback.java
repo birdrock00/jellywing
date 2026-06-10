@@ -1,0 +1,44 @@
+package club.thatpetbff.gramophone.service.playback;
+
+import club.thatpetbff.gramophone.model.Song;
+import androidx.media3.common.Player;
+
+import java.util.List;
+
+public interface Playback {
+    void setQueue(List<Song> queue, int position, int progress, boolean resetCurrentSong);
+
+    void playSongAt(int position);
+
+    void setListener(PlaybackListener listener);
+
+    boolean isReady();
+
+    boolean isPlaying();
+
+    boolean isLoading();
+
+    boolean hasMediaItems();
+
+    void start();
+
+    void pause();
+
+    void stop();
+
+    void previous();
+
+    void next();
+
+    void setRepeatMode(@Player.RepeatMode int repeatMode);
+
+    int getProgress();
+
+    int getDuration();
+
+    void setProgress(int progress);
+
+    void setVolume(int volume);
+
+    int getVolume();
+}
