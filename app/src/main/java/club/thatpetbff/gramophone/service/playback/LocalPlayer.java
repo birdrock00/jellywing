@@ -128,6 +128,8 @@ public class LocalPlayer implements Playback {
 
             runOnPlayerThread(() -> {
                 if (resetCurrentSong) {
+                    exoPlayer.stop();
+                    exoPlayer.clearMediaItems();
                     exoPlayer.setMediaItems(mediaItems, position, progress);
                     exoPlayer.prepare();
                     return;
