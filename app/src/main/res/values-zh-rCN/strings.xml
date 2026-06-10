@@ -169,9 +169,9 @@
     <string name="report_bugs">反馈bug</string>
     <string name="report_bugs_summary">Open a new issue for bugs or features.</string>
     <string name="translate">翻译</string>
-    <string name="translate_summary">帮助翻译Gelli。</string>
+    <string name="translate_summary">帮助翻译Jellywing。</string>
     <string name="rate_on_google_play">评分</string>
-    <string name="rate_on_google_play_summary">如果喜欢 Gelli 请在 Play Store 中留下您的好评。</string>
+    <string name="rate_on_google_play_summary">如果喜欢 Jellywing 请在 Play Store 中留下您的好评。</string>
     <string name="donate">捐赠</string>
     <string name="donate_summary">如果您喜欢我的作品，也可以在这里来选择捐赠我。</string>
     <string name="special_thanks_to">特别鸣谢</string>
