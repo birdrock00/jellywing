@@ -244,6 +244,19 @@ public class UpNextStructureRegressionTest {
     }
 
     @Test
+    public void selectingSongResetsPlayerSourceBeforeOpeningFreshStream() throws IOException {
+        String service = readProjectFile("app/src/main/java/club/thatpetbff/gramophone/service/MusicService.java");
+        String player = readProjectFile("app/src/main/java/club/thatpetbff/gramophone/service/playback/LocalPlayer.java");
+
+        assertTrue(service.contains("playback.setQueue(queueManager.getPlayingQueue(), queueManager.getPosition(), 0, true);"));
+        assertTrue(player.contains("if (resetCurrentSong)"));
+        assertTrue(player.contains("exoPlayer.stop();"));
+        assertTrue(player.contains("exoPlayer.clearMediaItems();"));
+        assertTrue(player.contains("exoPlayer.setMediaItems(mediaItems, position, progress);"));
+        assertTrue(player.contains("exoPlayer.prepare();"));
+    }
+
+    @Test
     public void selectingUpNextRefreshesCurrentSongTitleArtworkAndQueueViews() throws IOException {
         String service = readProjectFile("app/src/main/java/club/thatpetbff/gramophone/service/MusicService.java");
         String albumCover = readProjectFile("app/src/main/java/club/thatpetbff/gramophone/fragments/player/PlayerAlbumCoverFragment.java");
