@@ -1,8 +1,8 @@
-## Gelli
+## Jellywing
 
 This is a native music player for Android devices that connects to Jellyfin media servers. The code is based on a relatively recent version of Phonograph and was made for personal use, but contributions are welcome! Please open an issue to discuss larger changes before submitting a pull request. I am open to an improved icon if any graphic designers have a good suggestion.
 
-[<img src="https://f-droid.org/badge/get-it-on.png" alt="Get it on F-Droid" height="90">](https://f-droid.org/packages/com.dkanada.gramophone)
+[<img src="https://f-droid.org/badge/get-it-on.png" alt="Get it on F-Droid" height="90">](https://f-droid.org/packages/club.thatpetbff.gramophone)
 
 ## Features
 
@@ -42,4 +42,4 @@ These are features I wouldn't include myself, but I would accept pull requests w
 
 ## Screenshots
 
-<img src='https://raw.githubusercontent.com/dkanada/gelli/master/metadata/en-US/screenshots.png'>
+<img src='https://raw.githubusercontent.com/birdrock00/jellywing/master/metadata/en-US/screenshots.png'>

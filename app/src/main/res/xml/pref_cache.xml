@@ -2,9 +2,9 @@
 <androidx.preference.PreferenceScreen xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto">
 
-    <com.dkanada.gramophone.views.settings.JellyPreferenceCategory android:title="@string/pref_header_cache">
+    <club.thatpetbff.gramophone.views.settings.JellyPreferenceCategory android:title="@string/pref_header_cache">
 
-        <com.dkanada.gramophone.views.settings.FilePreference
+        <club.thatpetbff.gramophone.views.settings.FilePreference
             app:iconSpaceReserved="false"
             android:key="location_download"
             android:title="@string/pref_title_download_location" />
@@ -31,6 +31,6 @@
             android:positiveButtonText="@null"
             android:title="@string/pref_title_media_cache_size" />
 
-    </com.dkanada.gramophone.views.settings.JellyPreferenceCategory>
+    </club.thatpetbff.gramophone.views.settings.JellyPreferenceCategory>
 
 </androidx.preference.PreferenceScreen>

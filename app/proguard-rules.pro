@@ -1,7 +1,7 @@
 -dontwarn
 -ignorewarnings
 
--keep class com.dkanada.gramophone.**.* { *; }
+-keep class club.thatpetbff.gramophone.**.* { *; }
 -keepnames class **.* { *; }
 -keepattributes SourceFile
 -keepattributes LineNumberTable
