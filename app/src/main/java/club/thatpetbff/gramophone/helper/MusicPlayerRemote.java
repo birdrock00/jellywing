@@ -399,7 +399,7 @@ public class MusicPlayerRemote {
 
     public static boolean clearQueue() {
         if (musicService != null && musicService.queueManager != null) {
-            musicService.queueManager.clearQueue();
+            musicService.clearPlayingQueue();
             return true;
         }
 

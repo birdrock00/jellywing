@@ -603,6 +603,15 @@ public class MusicService extends Service implements SharedPreferences.OnSharedP
         }
     }
 
+    public synchronized void clearPlayingQueue() {
+        pause();
+        queueManager.clearQueue();
+        saveState();
+        notifyChange(QUEUE_CHANGED);
+        notifyChange(STATE_CHANGED);
+        notifyChange(META_CHANGED);
+    }
+
     public void play() {
         ensureStartedForPlayback();
 
