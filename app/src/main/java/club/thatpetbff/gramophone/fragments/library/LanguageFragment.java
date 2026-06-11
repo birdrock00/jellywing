@@ -117,14 +117,16 @@ public class LanguageFragment extends AbsLibraryPagerRecyclerViewFragment<Langua
     private void loadLanguageQueuePage(Language language, int startIndex, List<Song> songs) {
         ItemQuery query = createLanguageQuery();
         query.setStartIndex(startIndex);
-        query.setGenres(new String[]{Language.getLanguageGenre(language)});
-        query.setLimit(QUEUE_LIMIT);
+        query.setLimit(200);
 
         App.getApiClient().GetItemsAsync(query, new Response<ItemsResult>() {
             @Override
             public void onResponse(ItemsResult result) {
                 for (BaseItemDto itemDto : result.getItems()) {
-                    songs.add(new Song(itemDto));
+                    if (songs.size() >= QUEUE_LIMIT) break;
+                    if (language.matches(itemDto)) {
+                        songs.add(new Song(itemDto));
+                    }
                 }
 
                 int nextIndex = startIndex + result.getItems().length;
