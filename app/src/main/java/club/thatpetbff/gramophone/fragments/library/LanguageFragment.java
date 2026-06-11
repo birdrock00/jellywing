@@ -66,6 +66,7 @@ public class LanguageFragment extends AbsLibraryPagerRecyclerViewFragment<Langua
 
     @Override
     public void onLanguageClick(Language language) {
+        MusicPlayerRemote.clearQueue();
         loadLanguageQueuePage(language, 0, new ArrayList<>());
     }
 
