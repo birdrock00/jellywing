@@ -60,7 +60,7 @@ public class MusicUtil {
         builder.append("&AudioCodec=").append(preferenceUtil.getTranscodeCodec());
         builder.append("&api_key=").append(apiClient.getAccessToken());
 
-        Log.i(MusicUtil.class.getName(), "playing audio: " + builder);
+        Log.i(MusicUtil.class.getName(), "playing audio: " + song.title);
         return builder.toString();
     }
 
