@@ -10,6 +10,7 @@ public enum Category {
     ARTISTS(R.string.artists),
     GENRES(R.string.genres),
     PLAYLISTS(R.string.playlists),
+    LANGUAGE(R.string.language),
     FAVORITES(R.string.favorites);
 
     @StringRes
