@@ -29,6 +29,8 @@ import java.util.List;
 
 public abstract class AbsBaseActivity extends AbsThemeActivity {
     private static final int PERMISSION_REQUEST = 100;
+    private static final String BATTERY_OPTIMIZATION_PROMPT_SHOWN = "battery_optimization_prompt_shown";
+    private static final String PERMISSION_WARNING_PROMPT_SHOWN = "permission_warning_prompt_shown";
 
     private List<String> permissions;
     private boolean allowed;
@@ -52,35 +54,77 @@ public abstract class AbsBaseActivity extends AbsThemeActivity {
             return;
         }
 
-        AlertDialog.Builder builder = new AlertDialog.Builder(this)
-            .setNegativeButton(R.string.ignore, (dialog, id) -> showWarning());
+        PreferenceUtil preferenceUtil = PreferenceUtil.getInstance(this);
+        boolean canShowPermissionWarning = canShowPermissionWarning(preferenceUtil);
 
-        if (!checkBatteryOptimization()) {
-            builder.setMessage(R.string.battery_optimizations_message)
+        if (!preferenceUtil.getPreferences().getBoolean(BATTERY_OPTIMIZATION_PROMPT_SHOWN, false)
+            && !checkBatteryOptimization()) {
+            if (canShowPermissionWarning) {
+                markPermissionWarningShown();
+            }
+
+            AlertDialog.Builder batteryOptimizationBuilder = new AlertDialog.Builder(this)
+                .setMessage(R.string.battery_optimizations_message)
                 .setTitle(R.string.battery_optimizations_title)
-                .setPositiveButton(R.string.disable, (dialog, id) -> requestBatteryOptimization());
+                .setPositiveButton(R.string.disable, (dialog, id) -> requestBatteryOptimization())
+                .setNegativeButton(R.string.ignore, (dialog, id) -> dialog.dismiss());
 
-            handler.postDelayed(() -> showDialogIfAlive(builder), 2000);
-        } else if (permissions.size() != 0 && ActivityCompat.shouldShowRequestPermissionRationale(this, permissions.get(0))) {
-            builder.setMessage(getPermissionMessage())
+            handler.postDelayed(() -> showBatteryOptimizationDialogIfAlive(batteryOptimizationBuilder), 2000);
+        } else if (canShowPermissionWarning) {
+            AlertDialog.Builder permissionBuilder = new AlertDialog.Builder(this)
+                .setMessage(getPermissionMessage())
                 .setTitle(R.string.permissions_denied)
-                .setPositiveButton(R.string.action_grant, (dialog, id) -> requestPermissions());
+                .setNegativeButton(R.string.ignore, (dialog, id) -> showPermissionWarning());
 
-            handler.postDelayed(() -> showDialogIfAlive(builder), 2000);
-        } else if (!checkPermissions()) {
-            builder.setMessage(getPermissionMessage())
-                .setTitle(R.string.permissions_denied)
-                .setPositiveButton(R.string.action_settings, (dialog, id) -> NavigationUtil.openSettings(this));
+            if (shouldRequestPermissionRationale()) {
+                permissionBuilder.setPositiveButton(R.string.action_grant, (dialog, id) -> requestPermissions());
+            } else {
+                permissionBuilder.setPositiveButton(R.string.action_settings, (dialog, id) -> NavigationUtil.openSettings(this));
+            }
 
-            handler.postDelayed(() -> showDialogIfAlive(builder), 2000);
+            handler.postDelayed(() -> showPermissionDialogIfAlive(permissionBuilder), 2000);
         }
     }
 
-    private void showDialogIfAlive(AlertDialog.Builder builder) {
+    private boolean hasShownPermissionWarning(PreferenceUtil preferenceUtil) {
+        return preferenceUtil.getPreferences().getBoolean(PERMISSION_WARNING_PROMPT_SHOWN, false);
+    }
+
+    private boolean canShowPermissionWarning(PreferenceUtil preferenceUtil) {
+        return !hasShownPermissionWarning(preferenceUtil)
+            && (shouldRequestPermissionRationale() || !checkPermissions());
+    }
+
+    private boolean shouldRequestPermissionRationale() {
+        return permissions.size() != 0
+            && ActivityCompat.shouldShowRequestPermissionRationale(this, permissions.get(0));
+    }
+
+    private void markPermissionWarningShown() {
+        PreferenceUtil.getInstance(this).getPreferences()
+            .edit()
+            .putBoolean(PERMISSION_WARNING_PROMPT_SHOWN, true)
+            .apply();
+    }
+
+    private void showPermissionDialogIfAlive(AlertDialog.Builder builder) {
         if (isFinishing() || isDestroyed()) {
             return;
         }
 
+        markPermissionWarningShown();
+        builder.show();
+    }
+
+    private void showBatteryOptimizationDialogIfAlive(AlertDialog.Builder builder) {
+        if (isFinishing() || isDestroyed()) {
+            return;
+        }
+
+        PreferenceUtil.getInstance(this).getPreferences()
+            .edit()
+            .putBoolean(BATTERY_OPTIMIZATION_PROMPT_SHOWN, true)
+            .apply();
         builder.show();
     }
 
@@ -116,7 +160,8 @@ public abstract class AbsBaseActivity extends AbsThemeActivity {
         return getString(R.string.permissions_denied);
     }
 
-    private void showWarning() {
+    private void showPermissionWarning() {
+        markPermissionWarningShown();
         Snackbar.make(getPermissionWindow(), getPermissionMessage(), Snackbar.LENGTH_SHORT)
             .setAction(R.string.ignore, view -> { })
             .setActionTextColor(PreferenceUtil.getInstance(this).getAccentColor())
@@ -168,7 +213,7 @@ public abstract class AbsBaseActivity extends AbsThemeActivity {
 
         for (int result : results) {
             if (result != PackageManager.PERMISSION_GRANTED) {
-                showWarning();
+                showPermissionWarning();
                 return;
             }
         }

@@ -16,6 +16,8 @@ import club.thatpetbff.gramophone.interfaces.base.PreferenceMigration;
 import club.thatpetbff.gramophone.fragments.player.NowPlayingScreen;
 
 import java.util.Arrays;
+import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -439,15 +441,51 @@ public final class PreferenceUtil {
         String defaultValues = Arrays.stream(Category.values()).map(Category::toString).collect(Collectors.joining("."));
         String values = mPreferences.getString(CATEGORIES, defaultValues);
 
-        return Arrays.stream(values.split("\\.")).map(category -> {
-            Category item = Category.valueOf(category.toUpperCase());
+        List<Category> categories = new ArrayList<>();
+        Set<Category> included = new HashSet<>();
+        boolean changed = false;
+
+        for (String category : values.split("\\.")) {
+            if (category.isEmpty()) continue;
+
+            Category item;
+            try {
+                item = Category.valueOf(category.toUpperCase());
+            } catch (IllegalArgumentException exception) {
+                changed = true;
+                continue;
+            }
 
             // this is kind of a hack but avoids any annoying json serialization
             // lowercase enum means the category is not enabled on the main activity
             item.select = Character.isUpperCase(category.charAt(0));
+            categories.add(item);
+            included.add(item);
+        }
 
-            return item;
-        }).collect(Collectors.toList());
+        for (Category category : Category.values()) {
+            if (!included.contains(category)) {
+                category.select = true;
+                insertCategory(categories, category);
+                changed = true;
+            }
+        }
+
+        if (changed) setCategories(categories);
+
+        return categories;
+    }
+
+    private void insertCategory(List<Category> categories, Category category) {
+        if (category == Category.LANGUAGE) {
+            int favorites = categories.indexOf(Category.FAVORITES);
+            if (favorites >= 0) {
+                categories.add(favorites, category);
+                return;
+            }
+        }
+
+        categories.add(category);
     }
 
     @SuppressWarnings("SimplifyStreamApiCallChains")

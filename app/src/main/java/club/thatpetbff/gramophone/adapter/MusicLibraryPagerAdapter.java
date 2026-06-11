@@ -11,6 +11,7 @@ import androidx.fragment.app.FragmentManager;
 import androidx.fragment.app.FragmentPagerAdapter;
 
 import club.thatpetbff.gramophone.fragments.library.FavoritesFragment;
+import club.thatpetbff.gramophone.fragments.library.LanguageFragment;
 import club.thatpetbff.gramophone.model.Category;
 import club.thatpetbff.gramophone.fragments.library.AlbumsFragment;
 import club.thatpetbff.gramophone.fragments.library.ArtistsFragment;
@@ -157,6 +158,7 @@ public class MusicLibraryPagerAdapter extends FragmentPagerAdapter {
         ARTISTS(ArtistsFragment.class),
         GENRES(GenresFragment.class),
         PLAYLISTS(PlaylistsFragment.class),
+        LANGUAGE(LanguageFragment.class),
         FAVORITES(FavoritesFragment.class);
 
         private final Class<? extends Fragment> mFragmentClass;

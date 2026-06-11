@@ -15,8 +15,10 @@ public class ActivityLifecycleRegressionTest {
     public void delayedPermissionDialogsCheckActivityStateBeforeShowing() throws IOException {
         String source = readProjectFile("app/src/main/java/club/thatpetbff/gramophone/activities/base/AbsBaseActivity.java");
 
-        assertTrue(source.contains("handler.postDelayed(() -> showDialogIfAlive(builder), 2000);"));
-        assertTrue(source.contains("private void showDialogIfAlive(AlertDialog.Builder builder)"));
+        assertTrue(source.contains("handler.postDelayed(() -> showBatteryOptimizationDialogIfAlive(batteryOptimizationBuilder), 2000);"));
+        assertTrue(source.contains("handler.postDelayed(() -> showPermissionDialogIfAlive(permissionBuilder), 2000);"));
+        assertTrue(source.contains("private void showBatteryOptimizationDialogIfAlive(AlertDialog.Builder builder)"));
+        assertTrue(source.contains("private void showPermissionDialogIfAlive(AlertDialog.Builder builder)"));
         assertTrue(source.contains("if (isFinishing() || isDestroyed())"));
         assertTrue(source.contains("builder.show();"));
     }

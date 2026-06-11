@@ -52,12 +52,16 @@
     <string name="genres">Genres</string>
     <string name="songs">Songs</string>
     <string name="playlists">Playlists</string>
+    <string name="language">Language</string>
     <string name="favorites">Favorites</string>
     <string name="no_playlists">No playlists</string>
     <string name="no_albums">No albums</string>
     <string name="no_songs">No songs</string>
     <string name="no_artists">No artists</string>
     <string name="no_genres">No genres</string>
+    <string name="no_languages">No languages</string>
+    <string name="no_language_songs">No songs found for %1$s</string>
+    <string name="language_queue_low_count">Only %1$d songs found for %2$s</string>
     <string name="no_results">No results</string>
     <string name="empty">Empty</string>
     <string name="name">Name</string>
