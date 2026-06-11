@@ -25,9 +25,20 @@ build
 # Configuration
 local.properties
 start-jellywing-emulator.sh
+.jellywing-emulator.env
+*.env
+.envrc
+.env.*
+secrets.*
+credentials.*
 *.jks
 *.keystore
+*.p12
+*.pem
+*.key
 
 # Other
 .idea
 .vs
+captures
+*.hprof
