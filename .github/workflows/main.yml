@@ -79,7 +79,7 @@ jobs:
             echo "Source commit: ${GITHUB_SHA}"
             echo "Workflow run: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
           } > "$notes_file"
-          gh release create "${{ steps.build_date.outputs.tag }}" artifacts/*.apk \
+          gh release create "${{ steps.build_date.outputs.tag }}" artifacts/*-release.apk \
             --repo "$GITHUB_REPOSITORY" \
             --title "${{ steps.build_date.outputs.title }}" \
             --notes-file "$notes_file"
