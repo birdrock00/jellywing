@@ -27,9 +27,11 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Random;
 
 public class LanguageFragment extends AbsLibraryPagerRecyclerViewFragment<LanguageAdapter, LinearLayoutManager, ItemQuery> implements LanguageAdapter.OnLanguageClickListener {
     private static final int QUEUE_LIMIT = 50;
+    private int languageQueueRequestId = 0;
 
     @NonNull
     @Override
@@ -67,7 +69,8 @@ public class LanguageFragment extends AbsLibraryPagerRecyclerViewFragment<Langua
     @Override
     public void onLanguageClick(Language language) {
         MusicPlayerRemote.clearQueue();
-        loadLanguageQueuePage(language, 0, new ArrayList<>());
+        int requestId = ++languageQueueRequestId;
+        loadLanguageQueuePage(language, requestId, 0, new LanguageQueueSampler<>(QUEUE_LIMIT, new Random(), Song::new));
     }
 
     private void loadLanguagePage(int startIndex, Map<String, Language> languages) {
@@ -115,7 +118,7 @@ public class LanguageFragment extends AbsLibraryPagerRecyclerViewFragment<Langua
         });
     }
 
-    private void loadLanguageQueuePage(Language language, int startIndex, List<Song> songs) {
+    private void loadLanguageQueuePage(Language language, int requestId, int startIndex, LanguageQueueSampler<Song> sampler) {
         ItemQuery query = createLanguageQuery();
         query.setStartIndex(startIndex);
         query.setLimit(200);
@@ -123,24 +126,24 @@ public class LanguageFragment extends AbsLibraryPagerRecyclerViewFragment<Langua
         App.getApiClient().GetItemsAsync(query, new Response<ItemsResult>() {
             @Override
             public void onResponse(ItemsResult result) {
+                if (requestId != languageQueueRequestId) return;
+
                 for (BaseItemDto itemDto : result.getItems()) {
-                    if (songs.size() >= QUEUE_LIMIT) break;
-                    if (language.matches(itemDto)) {
-                        songs.add(new Song(itemDto));
-                    }
+                    sampler.consider(language, itemDto);
                 }
 
                 int nextIndex = startIndex + result.getItems().length;
-                if (songs.size() < QUEUE_LIMIT && nextIndex < result.getTotalRecordCount()) {
-                    loadLanguageQueuePage(language, nextIndex, songs);
+                if (nextIndex < result.getTotalRecordCount()) {
+                    loadLanguageQueuePage(language, requestId, nextIndex, sampler);
                     return;
                 }
 
-                playLanguageQueue(language, songs);
+                playLanguageQueue(language, sampler.getSample());
             }
 
             @Override
             public void onError(Exception exception) {
+                if (requestId != languageQueueRequestId) return;
                 exception.printStackTrace();
             }
         });
