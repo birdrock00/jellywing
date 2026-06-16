@@ -661,7 +661,13 @@ public class MusicService extends Service implements SharedPreferences.OnSharedP
     }
 
     private void sendChangeInternal(final String what) {
-        sendBroadcast(new Intent(what));
+        // Target the broadcast at our own package. Apps targeting Android 14+ (API 34) no longer
+        // deliver IMPLICIT broadcasts to context-registered RECEIVER_NOT_EXPORTED receivers, so an
+        // untargeted Intent(action) silently fails to reach AbsMusicServiceActivity's receiver. That
+        // left the player/Up-Next UI never refreshing on queue/meta changes (e.g. picking a
+        // language), so it kept rendering the previous queue. Setting the package makes the broadcast
+        // explicit and deliverable again.
+        sendBroadcast(new Intent(what).setPackage(getPackageName()));
 
         appWidgetAlbum.notifyChange(this, what, null);
         appWidgetClassic.notifyChange(this, what, null);
