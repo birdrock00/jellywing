@@ -8,6 +8,7 @@ import androidx.annotation.LayoutRes;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.appcompat.app.AppCompatActivity;
+import androidx.recyclerview.widget.DiffUtil;
 import androidx.recyclerview.widget.RecyclerView;
 
 import com.h6ah4i.android.widget.advrecyclerview.draggable.DraggableItemAdapter;
@@ -74,24 +75,87 @@ public class PlayingQueueAdapter extends SongAdapter implements DraggableItemAda
 
     public void swapDataSet(List<Song> dataSet, int position) {
         updateQueue(dataSet, position);
-        notifyDataSetChanged();
     }
 
     public void setCurrent(int current) {
         updateQueue(playingQueue, current);
-        notifyDataSetChanged();
     }
 
     private void updateQueue(List<Song> queue, int current) {
+        // MusicPlayerRemote.getPlayingQueue() returns the LIVE, mutating list reference, so
+        // snapshot it before doing any diffing/comparison.
         List<Song> queueCopy = queue == null ? new ArrayList<>() : new ArrayList<>(queue);
 
         playingQueue.clear();
         playingQueue.addAll(queueCopy);
 
         this.current = current;
+
+        List<Integer> oldQueuePositions = new ArrayList<>(queuePositions);
+        List<Song> oldDataSet = dataSet == null ? new ArrayList<>() : new ArrayList<>(dataSet);
+
+        List<Integer> newQueuePositions = createUpNextQueuePositionsForTest(playingQueue, current);
+        List<Song> newDataSet = createSongsForPositions(playingQueue, newQueuePositions);
+
         queuePositions.clear();
-        queuePositions.addAll(createUpNextQueuePositionsForTest(playingQueue, current));
-        dataSet = createSongsForPositions(playingQueue, queuePositions);
+        queuePositions.addAll(newQueuePositions);
+        dataSet = newDataSet;
+
+        // The adapter inherits setHasStableIds(true) (required by RecyclerViewDragDropManager for
+        // reorder animations) and getItemId() is keyed on song.id.hashCode(). Under stable IDs the
+        // RecyclerView reuses ViewHolders for IDs it believes are unchanged, so a bare
+        // notifyDataSetChanged() will NOT visibly repopulate the Up Next list when the queue is
+        // rebuilt (e.g. picking a language) or the position advances (next-song). Dispatching a real
+        // DiffUtil result forces the correct insert/remove/move/change events so every row rebinds.
+        DiffUtil.calculateDiff(new QueueDiffCallback(oldDataSet, oldQueuePositions, newDataSet, newQueuePositions))
+                .dispatchUpdatesTo(this);
+    }
+
+    private static final class QueueDiffCallback extends DiffUtil.Callback {
+        private final List<Song> oldDataSet;
+        private final List<Integer> oldQueuePositions;
+        private final List<Song> newDataSet;
+        private final List<Integer> newQueuePositions;
+
+        QueueDiffCallback(List<Song> oldDataSet, List<Integer> oldQueuePositions,
+                          List<Song> newDataSet, List<Integer> newQueuePositions) {
+            this.oldDataSet = oldDataSet;
+            this.oldQueuePositions = oldQueuePositions;
+            this.newDataSet = newDataSet;
+            this.newQueuePositions = newQueuePositions;
+        }
+
+        @Override
+        public int getOldListSize() {
+            return oldDataSet.size();
+        }
+
+        @Override
+        public int getNewListSize() {
+            return newDataSet.size();
+        }
+
+        @Override
+        public boolean areItemsTheSame(int oldItemPosition, int newItemPosition) {
+            return isSameSong(oldDataSet.get(oldItemPosition), newDataSet.get(newItemPosition));
+        }
+
+        @Override
+        public boolean areContentsTheSame(int oldItemPosition, int newItemPosition) {
+            Song oldSong = oldDataSet.get(oldItemPosition);
+            Song newSong = newDataSet.get(newItemPosition);
+            if (!isSameSong(oldSong, newSong)) {
+                return false;
+            }
+
+            // The row also carries its underlying queue position (used for play/remove/reorder
+            // actions), so a change there must rebind even when the rendered song id matches.
+            Integer oldQueuePosition = oldItemPosition < oldQueuePositions.size()
+                    ? oldQueuePositions.get(oldItemPosition) : null;
+            Integer newQueuePosition = newItemPosition < newQueuePositions.size()
+                    ? newQueuePositions.get(newItemPosition) : null;
+            return oldQueuePosition != null && oldQueuePosition.equals(newQueuePosition);
+        }
     }
 
     private int getQueuePosition(int adapterPosition) {
