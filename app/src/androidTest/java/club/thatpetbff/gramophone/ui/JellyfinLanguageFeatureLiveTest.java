@@ -62,7 +62,8 @@ import java.util.concurrent.atomic.AtomicReference;
 public class JellyfinLanguageFeatureLiveTest {
     private static final long NETWORK_TIMEOUT_MS = 90_000;
     private static final int PAGE_SIZE = 100;
-    private static final int LANGUAGE_QUEUE_LIMIT = 50;
+    private static final int LANGUAGE_VISIBLE_UP_NEXT_LIMIT = 50;
+    private static final int LANGUAGE_QUEUE_LIMIT = LANGUAGE_VISIBLE_UP_NEXT_LIMIT + 1;
 
     @Rule
     public GrantPermissionRule mediaPermissions = GrantPermissionRule.grant(
@@ -128,8 +129,9 @@ public class JellyfinLanguageFeatureLiveTest {
 
                 List<Song> queue = new ArrayList<>(MusicPlayerRemote.getPlayingQueue());
                 assertTrue("Language UI queue should contain at least one real song", queue.size() >= 1);
-                assertTrue("Language UI queue should contain at most 50 real songs", queue.size() <= LANGUAGE_QUEUE_LIMIT);
-                assertEqualsByMessage("Language UI queue should use all songs when fewer than 50 exist, otherwise cap at 50",
+                assertTrue("Language UI queue should contain at most 51 real songs for 50 visible Up next rows",
+                        queue.size() <= LANGUAGE_QUEUE_LIMIT);
+                assertEqualsByMessage("Language UI queue should use all songs when fewer than 51 exist, otherwise cap at 51",
                         expectedSize, queue.size());
                 assertQueueContainsOnlyMatchingRealSongs(language, audioItems, queue);
             } finally {
@@ -221,7 +223,8 @@ public class JellyfinLanguageFeatureLiveTest {
                 List<Song> queue = new ArrayList<>(MusicPlayerRemote.getPlayingQueue());
                 android.util.Log.i("JELLYWING_LANG", "FINAL_CHINESE_QUEUE_SIZE=" + queue.size()
                         + " currentPos=" + MusicPlayerRemote.getPosition());
-                assertEqualsByMessage("Chinese click should load min(50, count) songs", expected, queue.size());
+                assertEqualsByMessage("Chinese click should load min(51, count) songs for 50 visible Up next rows",
+                        expected, queue.size());
             } finally {
                 MusicPlayerRemote.pauseSong();
                 preferences.restore();

@@ -11,11 +11,12 @@ import club.thatpetbff.gramophone.model.Song;
 import org.junit.Test;
 
 import java.io.IOException;
-import java.util.Arrays;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 
 public class UpNextStructureRegressionTest {
@@ -218,6 +219,20 @@ public class UpNextStructureRegressionTest {
         assertEquals(Arrays.asList(2, 3), positions);
         assertEquals(2, PlayingQueueAdapter.getQueuePositionForTest(positions, 0));
         assertEquals(3, PlayingQueueAdapter.getQueuePositionForTest(positions, 1));
+    }
+
+    @Test
+    public void fiftyOneItemQueueShowsFiftyUpNextRowsWhenOpenedAtStart() {
+        List<Song> queue = new ArrayList<>();
+        for (int index = 0; index < 51; index++) {
+            queue.add(song("song-" + index));
+        }
+
+        List<Integer> positions = PlayingQueueAdapter.createUpNextQueuePositionsForTest(queue, 0);
+
+        assertEquals(50, positions.size());
+        assertEquals(1, PlayingQueueAdapter.getQueuePositionForTest(positions, 0));
+        assertEquals(50, PlayingQueueAdapter.getQueuePositionForTest(positions, 49));
     }
 
     @Test

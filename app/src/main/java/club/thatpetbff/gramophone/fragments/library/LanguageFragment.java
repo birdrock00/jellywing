@@ -30,7 +30,8 @@ import java.util.Map;
 import java.util.Random;
 
 public class LanguageFragment extends AbsLibraryPagerRecyclerViewFragment<LanguageAdapter, LinearLayoutManager, ItemQuery> implements LanguageAdapter.OnLanguageClickListener {
-    private static final int QUEUE_LIMIT = 50;
+    private static final int VISIBLE_UP_NEXT_LIMIT = 50;
+    private static final int QUEUE_LIMIT = VISIBLE_UP_NEXT_LIMIT + 1;
     private int languageQueueRequestId = 0;
 
     @NonNull
@@ -162,7 +163,7 @@ public class LanguageFragment extends AbsLibraryPagerRecyclerViewFragment<Langua
             songs = new ArrayList<>(songs.subList(0, QUEUE_LIMIT));
         }
 
-        MusicPlayerRemote.openAndShuffleQueue(songs, true);
+        MusicPlayerRemote.openQueue(songs, 0, true);
     }
 
     private ItemQuery createLanguageQuery() {
