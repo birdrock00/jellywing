@@ -172,7 +172,11 @@ public class MusicPlayerRemote {
     }
 
     private static boolean tryToHandleOpenPlayingQueue(final List<Song> queue, final int startPosition) {
-        if (getPlayingQueue() == queue) {
+        // Only short-circuit when re-opening the exact same, non-empty queue. This preserves the
+        // original intent (avoid re-shuffling when re-opening an identical queue) while ensuring a
+        // genuinely new song set always fully replaces the queue instead of being silently dropped.
+        final List<Song> currentQueue = getPlayingQueue();
+        if (!queue.isEmpty() && currentQueue.equals(queue)) {
             playSongAt(startPosition);
 
             return true;
