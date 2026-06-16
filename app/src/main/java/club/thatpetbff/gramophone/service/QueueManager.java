@@ -250,8 +250,8 @@ public class QueueManager {
     }
 
     public void clearQueue() {
-        playingQueue.clear();
-        shuffledQueue.clear();
+        playingQueue = new ArrayList<>();
+        shuffledQueue = new ArrayList<>();
 
         position = 0;
         callbacks.onQueueChanged();
