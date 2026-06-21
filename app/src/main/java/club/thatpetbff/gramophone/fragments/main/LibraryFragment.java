@@ -10,6 +10,7 @@ import android.view.MenuItem;
 import android.view.SubMenu;
 import android.view.View;
 import android.view.ViewGroup;
+import android.widget.Toast;
 
 import androidx.fragment.app.Fragment;
 import androidx.viewpager.widget.ViewPager;
@@ -18,6 +19,7 @@ import androidx.annotation.Nullable;
 
 import club.thatpetbff.gramophone.databinding.FragmentLibraryBinding;
 import club.thatpetbff.gramophone.helper.MusicPlayerRemote;
+import club.thatpetbff.gramophone.util.QueryUtil;
 import club.thatpetbff.gramophone.util.ShortcutUtil;
 import club.thatpetbff.gramophone.util.ThemeUtil;
 import com.google.android.material.appbar.AppBarLayout;
@@ -194,6 +196,23 @@ public class LibraryFragment extends AbsMainActivityFragment implements ViewPage
         int id = item.getItemId();
         if (id == R.id.action_shuffle_all) {
             ShortcutUtil.getShuffle((media) -> MusicPlayerRemote.openAndShuffleQueue(media, true), false);
+            return true;
+        } else if (id == R.id.action_scan_libraries) {
+            Toast.makeText(getActivity(), R.string.scan_libraries_started, Toast.LENGTH_SHORT).show();
+            QueryUtil.scanAllLibraries(
+                    () -> {
+                        if (getActivity() != null) {
+                            getActivity().runOnUiThread(() ->
+                                    Toast.makeText(getActivity(), R.string.scan_libraries_success, Toast.LENGTH_SHORT).show());
+                        }
+                    },
+                    () -> {
+                        if (getActivity() != null) {
+                            getActivity().runOnUiThread(() ->
+                                    Toast.makeText(getActivity(), R.string.scan_libraries_failed, Toast.LENGTH_LONG).show());
+                        }
+                    }
+            );
             return true;
         } else if (id == R.id.action_new_playlist) {
             CreatePlaylistDialog.create().show(getChildFragmentManager(), "CREATE_PLAYLIST");
