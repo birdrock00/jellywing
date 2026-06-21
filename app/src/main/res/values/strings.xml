@@ -37,6 +37,10 @@
     <string name="action_remove_from_playlist">Remove from playlist</string>
     <string name="action_grid_size">Grid size</string>
     <string name="action_shuffle_all">Shuffle all</string>
+    <string name="action_scan_libraries">Scan all libraries</string>
+    <string name="scan_libraries_started">Scanning all libraries…</string>
+    <string name="scan_libraries_success">Library scan started</string>
+    <string name="scan_libraries_failed">Failed to start library scan</string>
     <string name="action_shuffle">Shuffle</string>
     <string name="action_shuffle_album">Shuffle album</string>
     <string name="action_shuffle_artist">Shuffle artist</string>

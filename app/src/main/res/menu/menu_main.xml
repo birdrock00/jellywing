@@ -15,6 +15,11 @@
         app:showAsAction="never" />
 
     <item
+        android:id="@+id/action_scan_libraries"
+        android:title="@string/action_scan_libraries"
+        app:showAsAction="never" />
+
+    <item
         android:id="@+id/action_grid_size"
         android:title="@string/action_grid_size">
 

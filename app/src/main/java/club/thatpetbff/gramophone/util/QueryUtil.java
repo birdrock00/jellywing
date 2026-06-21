@@ -1,6 +1,7 @@
 package club.thatpetbff.gramophone.util;
 
 import android.text.TextUtils;
+import android.util.Log;
 
 import club.thatpetbff.gramophone.App;
 import club.thatpetbff.gramophone.interfaces.MediaCallback;
@@ -10,6 +11,7 @@ import club.thatpetbff.gramophone.model.Genre;
 import club.thatpetbff.gramophone.model.Playlist;
 import club.thatpetbff.gramophone.model.Song;
 
+import org.jellyfin.apiclient.interaction.ApiClient;
 import org.jellyfin.apiclient.interaction.Response;
 import org.jellyfin.apiclient.model.dto.BaseItemDto;
 import org.jellyfin.apiclient.model.dto.BaseItemType;
@@ -19,12 +21,46 @@ import org.jellyfin.apiclient.model.querying.ItemQuery;
 import org.jellyfin.apiclient.model.querying.ItemsByNameQuery;
 import org.jellyfin.apiclient.model.querying.ItemsResult;
 
+import java.net.HttpURLConnection;
+import java.net.URL;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 
 public class QueryUtil {
     public static BaseItemDto currentLibrary;
+
+    public static void scanAllLibraries(final Runnable onSuccess, final Runnable onError) {
+        new Thread(() -> {
+            HttpURLConnection conn = null;
+            try {
+                ApiClient client = App.getApiClient();
+                if (client == null) {
+                    if (onError != null) onError.run();
+                    return;
+                }
+                String baseUrl = client.getApiUrl();
+                String token = client.getAccessToken();
+                URL url = new URL(baseUrl + "/Library/Refresh");
+                conn = (HttpURLConnection) url.openConnection();
+                conn.setRequestMethod("POST");
+                conn.setRequestProperty("X-Emby-Token", token);
+                conn.setConnectTimeout(10000);
+                conn.setReadTimeout(10000);
+                int code = conn.getResponseCode();
+                if (code >= 200 && code < 300) {
+                    if (onSuccess != null) onSuccess.run();
+                } else {
+                    if (onError != null) onError.run();
+                }
+            } catch (Exception e) {
+                Log.e("QueryUtil", "scanAllLibraries failed", e);
+                if (onError != null) onError.run();
+            } finally {
+                if (conn != null) conn.disconnect();
+            }
+        }).start();
+    }
 
     // TODO return BaseItemDto everywhere
     // will simplify the code for the getPlaylists method
