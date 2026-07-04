@@ -1,6 +1,7 @@
 package club.thatpetbff.gramophone.dialogs;
 
 import android.app.Dialog;
+import android.content.Context;
 import android.os.Bundle;
 import android.widget.Toast;
 
@@ -39,6 +40,10 @@ public class ClassifyLanguageDialog extends DialogFragment {
             names.add(lang.englishName);
         }
 
+        Context appContext = requireActivity().getApplicationContext();
+        String successTemplate = getString(R.string.classified_as);
+        String errorMsg = getString(R.string.classify_language_failed);
+
         return new MaterialDialog.Builder(requireActivity())
                 .title(R.string.action_classify_language)
                 .items(names)
@@ -50,16 +55,14 @@ public class ClassifyLanguageDialog extends DialogFragment {
                     LanguageUtil.setSongLanguage(song.id, chosen.code, new LanguageUtil.ClassificationCallback() {
                         @Override
                         public void onSuccess(String genreName) {
-                            Toast.makeText(requireActivity(),
-                                    getString(R.string.classified_as, genreName),
+                            Toast.makeText(appContext,
+                                    String.format(successTemplate, genreName),
                                     Toast.LENGTH_SHORT).show();
                         }
 
                         @Override
                         public void onError(Exception exception) {
-                            Toast.makeText(requireActivity(),
-                                    getString(R.string.classify_language_failed),
-                                    Toast.LENGTH_SHORT).show();
+                            Toast.makeText(appContext, errorMsg, Toast.LENGTH_SHORT).show();
                             exception.printStackTrace();
                         }
                     });
