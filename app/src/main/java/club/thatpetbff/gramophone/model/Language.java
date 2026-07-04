@@ -9,6 +9,7 @@ import org.jellyfin.apiclient.model.entities.MediaStream;
 import org.jellyfin.apiclient.model.entities.MediaStreamType;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -99,6 +100,28 @@ public class Language {
 
     public String getGenreName() {
         return englishName;
+    }
+
+    public static List<Language> getSupportedLanguages() {
+        ArrayList<String> deduped = new ArrayList<>();
+        for (Map.Entry<String, String> entry : CODE_TO_ENGLISH.entrySet()) {
+            String code = entry.getKey();
+            String name = entry.getValue();
+            if ("und".equals(code)) continue;
+            if (deduped.contains(name)) continue;
+            deduped.add(name);
+        }
+        Collections.sort(deduped, String.CASE_INSENSITIVE_ORDER);
+        ArrayList<Language> result = new ArrayList<>(deduped.size());
+        for (String name : deduped) {
+            for (Map.Entry<String, String> entry : CODE_TO_ENGLISH.entrySet()) {
+                if (entry.getValue().equals(name)) {
+                    result.add(new Language(entry.getKey()));
+                    break;
+                }
+            }
+        }
+        return result;
     }
 
     public static String getLanguageGenre(Language language) {

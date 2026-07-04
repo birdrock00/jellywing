@@ -47,6 +47,9 @@
     <string name="action_shuffle_playlist">Shuffle playlist</string>
     <string name="action_clear_queue">Clear queue</string>
     <string name="action_save_queue">Save queue</string>
+    <string name="action_classify_language">Classify language</string>
+    <string name="classified_as">Classified as %1$s</string>
+    <string name="classify_language_failed">Failed to classify song</string>
     <string name="action_sleep_timer">Sleep timer</string>
     <string name="action_set">Set</string>
     <string name="action_new_playlist">New playlist</string>
