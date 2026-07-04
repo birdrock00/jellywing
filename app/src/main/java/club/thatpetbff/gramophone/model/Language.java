@@ -84,6 +84,8 @@ public class Language {
         CODE_TO_ENGLISH.put("pol", "Polish");
         CODE_TO_ENGLISH.put("sv", "Swedish");
         CODE_TO_ENGLISH.put("swe", "Swedish");
+        CODE_TO_ENGLISH.put("hi", "Hindi");
+        CODE_TO_ENGLISH.put("hin", "Hindi");
         CODE_TO_ENGLISH.put("und", "Undetermined");
     }
 
@@ -318,8 +320,12 @@ public class Language {
             return "vi";
         }
 
-        if (combined.matches(".*[¿¡ñÑ].*") || containsSpanishMarker(combined)) {
+        if (containsSpanishMarker(combined)) {
             return "es";
+        }
+
+        if (containsRomanizedHindiMarker(combined)) {
+            return "hi";
         }
 
         return "";
@@ -359,11 +365,71 @@ public class Language {
 
     private static boolean containsSpanishMarker(String text) {
         String normalized = " " + text + " ";
-        if (normalized.matches(".*[áéíóúüÁÉÍÓÚÜ].*")) {
-            return containsAnyWord(normalized, " el ", " la ", " los ", " las ", " una ", " para ", " amor ", " corazon ", " corazón ");
+
+        if (normalized.matches(".*[áéíóúüñ¿¡ÁÉÍÓÚÜÑ].*")) {
+            return true;
         }
 
-        return containsAnyWord(normalized, " de amor ", " por ti ", " te quiero ", " contigo ", " sin ti ", " mi vida ");
+        return containsAnyWord(normalized,
+                " el ", " la ", " los ", " las ", " un ", " una ", " unos ", " unas ",
+                " del ", " al ", " con ", " sin ", " por ", " para ", " que ",
+                " muy ", " pero ",
+                " amor ", " corazon ", " corazón ", " alma ", " vida ", " noche ", " dia ",
+                " cancion ", " canción ", " musica ", " música ",
+                " te quiero ", " te amo ", " te extraño ", " te necesito ",
+                " mi amor ", " mi vida ", " mi corazón ",
+                " de amor ", " por ti ", " por siempre ", " para siempre ",
+                " en mi ", " en mis ", " en tu ", " en tus ", " en el ",
+                " en manos ", " en mi vida ", " en mi corazón ",
+                " de ti ", " de mi ", " del alma ", " del corazón ",
+                " conmigo ", " contigo ", " sin ti ",
+                " nunca mas ", " nunca más ", " hasta siempre ",
+                " gracias ", " por favor ", " lo siento ",
+                " mi niña ", " mi niño ", " mi bebe ", " mi bebé ",
+                " besame ", " bésame ", " abrazame ", " abrázame "
+        );
+    }
+
+    private static boolean containsRomanizedHindiMarker(String text) {
+        String normalized = " " + text + " ";
+
+        if (containsAnyWord(normalized,
+                " lyrical video ", " video song ", " full video ", " official video ",
+                " lyrical ", " bollywood ", " bhangra ", " ghazal ", " qawwali ",
+                " hindhi ", " hindi song ", " bollywood song ")) {
+            return true;
+        }
+
+        int hits = 0;
+
+        if (containsAnyWord(normalized,
+                " hai ", " hain ", " ho ", " hoon ", " hi ", " tha ", " thi ", " the ",
+                " hoga ", " hogi ", " hona ", " hone ")) hits++;
+        if (containsAnyWord(normalized,
+                " main ", " mai ", " tu ", " tum ",
+                " tera ", " teri ", " tere ", " mera ", " meri ", " mere ")) hits++;
+        if (containsAnyWord(normalized,
+                " dil ", " pyaar ", " pyar ", " ishq ", " jaan ", " yaar ", " yaadon ",
+                " dost ", " duniya ", " zindagi ", " mohabbat ")) hits++;
+        if (containsAnyWord(normalized,
+                " jaayenge ", " jaa ", " jaaye ", " jaye ",
+                " dekh ", " deewana ", " deewani ", " diwana ", " diwani ")) hits++;
+        if (containsAnyWord(normalized,
+                " karle ", " karde ", " karta ", " karti ", " karna ",
+                " rehna ", " rehne ", " rahe ", " raha ", " rahi ")) hits++;
+        if (containsAnyWord(normalized,
+                " nahi ", " kabhi ", " kya ", " kyun ", " kaun ")) hits++;
+        if (containsAnyWord(normalized,
+                " laayi ", " layi ", " layee ",
+                " bewafa ", " saajan ", " sajni ", " sajna ")) hits++;
+        if (containsAnyWord(normalized,
+                " chahun ", " chahoon ", " chahta ", " chahti ",
+                " o re ", " o jaan ", " o dil ", " o saathi ", " o sakhi ")) hits++;
+        if (containsAnyWord(normalized,
+                " mehboob ", " mehbooba ", " mehfil ",
+                " tera mera ", " tera yaron ", " mere yaar ")) hits++;
+
+        return hits >= 2;
     }
 
     private static boolean containsAnyWord(String text, String... markers) {

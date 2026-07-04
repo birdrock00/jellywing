@@ -99,6 +99,30 @@ public class LanguageTest {
     }
 
     @Test
+    public void detectsRomanizedHindiViaLyricalVideoTag() {
+        assertDetectedLanguage("hi", textItem("Laayi Le Lyrical Video", "", ""));
+    }
+
+    @Test
+    public void detectsRomanizedHindiViaCommonWords() {
+        assertDetectedLanguage("hi", textItem("Tera Yaar Hoon Main", "Arijit Singh", "Album"));
+        assertDetectedLanguage("hi", textItem("Tum Hi Ho", "Arijit Singh", "Aashiqui 2"));
+        assertDetectedLanguage("hi", textItem("Channa Mereya", "Arijit Singh", "Ae Dil Hai Mushkil"));
+    }
+
+    @Test
+    public void detectsSpanishFromUnaccentedPhrase() {
+        assertDetectedLanguage("es", textItem("En Mis Manos", "Artista", "Album"));
+        assertDetectedLanguage("es", textItem("Te Quiero", "Singer", "Album"));
+    }
+
+    @Test
+    public void englishFallbackStillWorksForRealEnglishTitles() {
+        assertDetectedLanguage("en", textItem("Bohemian Rhapsody", "Queen", "A Night At The Opera"));
+        assertDetectedLanguage("en", textItem("Yesterday", "The Beatles", "Help"));
+    }
+
+    @Test
     public void genreNameUsesEnglishDisplayNameForJellyfinQuery() {
         assertEquals("Chinese", new Language("zh").getGenreName());
         assertEquals("Japanese", new Language("ja").getGenreName());
