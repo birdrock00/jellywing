@@ -17,11 +17,16 @@ are missing, so nothing is silently leaked from a partial config):
 
 Optional:
 
-    DRY_RUN           If "1", do everything except the Jellyfin POST update.
-    LIMIT             Maximum number of items to process (default: 200).
+    DRY_RUN              If "1", do everything except the Jellyfin POST update.
+    LIMIT                Maximum number of items to process (default: 200).
     LANGUAGE_HINTS_FILE  Path to a JSON file with {artist_keyword: language}
-                        overrides (rare artists known to sing in a specific
-                        language; loaded before SearXNG).
+                         overrides (rare artists known to sing in a specific
+                         language; loaded before SearXNG).
+    OVERRIDE_EXISTING    If "1", re-classify items that already have a
+                         "Language: <X>" genre tag. The new classification
+                         REPLACES the old tag (e.g. "Language: English" ->
+                         "Language: Spanish"). Useful for fixing items that
+                         were tagged incorrectly by a previous run.
 """
 
 import json
@@ -159,9 +164,24 @@ def update_jellyfin_genre(base_url, api_key, item, language_code):
     item_id = item["Id"]
     current_genres = list(item.get("Genres") or [])
     genre_name = f"{LANGUAGE_GENRE_PREFIX}{LANGUAGE_NAMES.get(language_code, language_code)}"
-    if genre_name in current_genres:
+
+    # Replace any pre-existing "Language: X" tag (whether it matches the new
+    # detection or not). If an item was previously tagged "Language: English"
+    # by a less accurate classifier, this overrides it to the new value.
+    had_existing_language_genre = False
+    existing_language_genres = []
+    filtered_genres = []
+    for g in current_genres:
+        if isinstance(g, str) and g.startswith(LANGUAGE_GENRE_PREFIX):
+            had_existing_language_genre = True
+            existing_language_genres.append(g)
+        else:
+            filtered_genres.append(g)
+
+    if genre_name in existing_language_genres and len(existing_language_genres) == 1:
         return False, "already set"
-    current_genres.append(genre_name)
+
+    filtered_genres.append(genre_name)
 
     # Jellyfin's POST /Items/{id} requires the full BaseItemDto payload, not a
     # partial update. GET the current item, replace Genres, POST it back.
@@ -171,7 +191,7 @@ def update_jellyfin_genre(base_url, api_key, item, language_code):
     with urllib.request.urlopen(get_req, timeout=30) as resp:
         full_item = json.loads(resp.read())
 
-    full_item["Genres"] = current_genres
+    full_item["Genres"] = filtered_genres
 
     url = f"{base_url}/Items/{item_id}"
     payload = json.dumps(full_item).encode("utf-8")
@@ -181,6 +201,9 @@ def update_jellyfin_genre(base_url, api_key, item, language_code):
     req.add_header("Accept", "application/json")
     with urllib.request.urlopen(req, timeout=30) as resp:
         resp.read()
+
+    if had_existing_language_genre:
+        return True, f"{existing_language_genres[0]} -> {genre_name}"
     return True, genre_name
 
 
@@ -300,6 +323,7 @@ def main():
     jellyfin_api_key = require_env("JELLYFIN_API_KEY")
 
     dry_run = os.environ.get("DRY_RUN", "").strip() == "1"
+    override_existing = os.environ.get("OVERRIDE_EXISTING", "").strip() == "1"
     try:
         limit = int(os.environ.get("LIMIT", "200"))
     except ValueError:
@@ -310,8 +334,13 @@ def main():
     items = fetch_jellyfin_items(jellyfin_url, jellyfin_api_key)
     sys.stderr.write(f"Found {len(items)} audio items total\n")
 
-    todo = [i for i in items if not has_language_genre(i)]
-    sys.stderr.write(f"Items needing classification: {len(todo)}\n")
+    if override_existing:
+        todo = items
+        sys.stderr.write(f"OVERRIDE_EXISTING=1: re-classifying all {len(todo)} items\n")
+    else:
+        todo = [i for i in items if not has_language_genre(i)]
+        sys.stderr.write(f"Items needing classification: {len(todo)}\n")
+
     if limit > 0:
         todo = todo[:limit]
         sys.stderr.write(f"Processing up to {limit}\n")
