@@ -17,6 +17,8 @@ import java.util.Map;
 import java.util.Set;
 
 public class Language {
+    public static final String LANGUAGE_GENRE_PREFIX = "Language: ";
+
     public final String code;
     public final String name;
     public final String englishName;
@@ -100,7 +102,7 @@ public class Language {
     }
 
     public static String getLanguageGenre(Language language) {
-        return "Language: " + language.getGenreName();
+        return LANGUAGE_GENRE_PREFIX + language.getGenreName();
     }
 
     public boolean matches(BaseItemDto itemDto) {
@@ -117,6 +119,7 @@ public class Language {
         List<String> languages = new ArrayList<>();
         if (itemDto == null) return languages;
 
+        // 1. Audio track language from the file's media streams (most reliable)
         addAudioLanguages(languages, itemDto.getMediaStreams());
 
         if (itemDto.getMediaSources() != null) {
@@ -136,8 +139,60 @@ public class Language {
             return languages;
         }
 
-        addDetectedLanguage(languages, itemDto);
+        // 2. Server-supplied classification: a "Language: <X>" genre tag written
+        //    by a server-side classifier (e.g. tools/classify.py) is treated
+        //    as authoritative because it is more accurate than the client-side
+        //    text-based heuristic for romanized/ambiguous titles.
+        addLanguageFromGenres(languages, itemDto);
+        if (!languages.isEmpty()) {
+            return languages;
+        }
+
+        // 3. Preferred metadata language from Jellyfin's library settings
+        String metadataLanguage = normalizeCode(itemDto.getPreferredMetadataLanguage());
+        if (isUsableDetectedCode(metadataLanguage)) {
+            languages.add(metadataLanguage);
+            return languages;
+        }
+
+        // 4. Last-resort text-based detection on title/artist/album/...
+        String detectedLanguage = detectTextLanguage(itemDto);
+        if (!isBlank(detectedLanguage)) {
+            languages.add(detectedLanguage);
+        }
         return languages;
+    }
+
+    private static void addLanguageFromGenres(List<String> languages, BaseItemDto itemDto) {
+        if (itemDto.getGenres() == null) return;
+
+        for (String genre : itemDto.getGenres()) {
+            if (isBlank(genre)) continue;
+            String trimmed = genre.trim();
+            if (trimmed.length() <= LANGUAGE_GENRE_PREFIX.length()) continue;
+            if (!trimmed.regionMatches(true, 0, LANGUAGE_GENRE_PREFIX, 0, LANGUAGE_GENRE_PREFIX.length())) {
+                continue;
+            }
+
+            String suffix = trimmed.substring(LANGUAGE_GENRE_PREFIX.length()).trim();
+            if (isBlank(suffix)) continue;
+
+            // Resolve "Spanish" -> "es" using the same display-name map the
+            // server-side classifier writes.
+            for (Map.Entry<String, String> entry : CODE_TO_ENGLISH.entrySet()) {
+                if (entry.getValue().equalsIgnoreCase(suffix)) {
+                    languages.add(entry.getKey());
+                    return;
+                }
+            }
+
+            // Fallback: treat the suffix as a raw language code.
+            String normalized = normalizeCode(suffix);
+            if (!isBlank(normalized)) {
+                languages.add(normalized);
+                return;
+            }
+        }
     }
 
     public static String normalizeCode(String rawCode) {
@@ -215,19 +270,6 @@ public class Language {
 
         if (stream.getType() == MediaStreamType.Audio) {
             languages.add(stream.getLanguage());
-        }
-    }
-
-    private static void addDetectedLanguage(List<String> languages, BaseItemDto itemDto) {
-        String metadataLanguage = normalizeCode(itemDto.getPreferredMetadataLanguage());
-        if (isUsableDetectedCode(metadataLanguage)) {
-            languages.add(metadataLanguage);
-            return;
-        }
-
-        String detectedLanguage = detectTextLanguage(itemDto);
-        if (!isBlank(detectedLanguage)) {
-            languages.add(detectedLanguage);
         }
     }
 

@@ -42,3 +42,6 @@ credentials.*
 .vs
 captures
 *.hprof
+__pycache__/
+*.pyc
+*.pyo

@@ -123,6 +123,37 @@ public class LanguageTest {
     }
 
     @Test
+    public void serverSuppliedLanguageGenreWinsOverTextHeuristic() {
+        // Romanized Hindi -- client text heuristic would say "en" without the server tag
+        BaseItemDto hindi = textItem("Laayi Le Lyrical Video", "", "");
+        hindi.setGenres(new ArrayList<>(Arrays.asList("Language: Hindi")));
+        assertDetectedLanguage("hi", hindi);
+
+        // Unaccented Spanish -- client text heuristic would say "en" without the server tag
+        BaseItemDto spanish = textItem("En Mis Manos", "Artista", "Album");
+        spanish.setGenres(new ArrayList<>(Arrays.asList("Language: Spanish")));
+        assertDetectedLanguage("es", spanish);
+
+        // Server tag wins over English fallback for an actual English title that
+        // was mis-tagged by an admin (user override scenario)
+        BaseItemDto overridden = textItem("Bohemian Rhapsody", "Queen", "A Night At The Opera");
+        overridden.setGenres(new ArrayList<>(Arrays.asList("Language: French")));
+        assertDetectedLanguage("fr", overridden);
+    }
+
+    @Test
+    public void streamLanguageStillWinsOverServerLanguageGenre() {
+        // When the file already has a Spanish audio track, it must take precedence
+        // over a stale or wrong "Language: French" genre tag.
+        BaseItemDto item = textItem("Title", "", "");
+        item.setGenres(new ArrayList<>(Arrays.asList("Language: French")));
+        item.setMediaStreams(new ArrayList<>(Arrays.asList(stream(MediaStreamType.Audio, "spa"))));
+        List<String> languages = Language.getAudioLanguages(item);
+        assertEquals(1, languages.size());
+        assertEquals("es", Language.normalizeCode(languages.get(0)));
+    }
+
+    @Test
     public void genreNameUsesEnglishDisplayNameForJellyfinQuery() {
         assertEquals("Chinese", new Language("zh").getGenreName());
         assertEquals("Japanese", new Language("ja").getGenreName());
