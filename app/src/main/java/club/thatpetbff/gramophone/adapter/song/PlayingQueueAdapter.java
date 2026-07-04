@@ -18,6 +18,7 @@ import com.h6ah4i.android.widget.advrecyclerview.draggable.ItemDraggableRange;
 import com.h6ah4i.android.widget.advrecyclerview.draggable.annotation.DraggableItemStateFlags;
 import club.thatpetbff.gramophone.R;
 import club.thatpetbff.gramophone.activities.base.AbsMusicServiceActivity;
+import club.thatpetbff.gramophone.dialogs.ClassifyLanguageDialog;
 import club.thatpetbff.gramophone.helper.MusicPlayerRemote;
 import club.thatpetbff.gramophone.interfaces.CabHolder;
 import club.thatpetbff.gramophone.model.Song;
@@ -297,6 +298,12 @@ public class PlayingQueueAdapter extends SongAdapter implements DraggableItemAda
                 if (queuePosition != RecyclerView.NO_POSITION) {
                     MusicPlayerRemote.removeFromQueue(queuePosition);
                 }
+                return true;
+            }
+
+            if (item.getItemId() == R.id.action_classify_language) {
+                ClassifyLanguageDialog.create(getSong()).show(
+                        activity.getSupportFragmentManager(), "ClassifyLanguage");
                 return true;
             }
 

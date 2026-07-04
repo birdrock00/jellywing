@@ -42,4 +42,9 @@
         android:title="@string/action_download"
         app:showAsAction="never" />
 
+    <item
+        android:id="@+id/action_classify_language"
+        android:title="@string/action_classify_language"
+        app:showAsAction="never" />
+
 </menu>
