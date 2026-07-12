@@ -160,6 +160,25 @@ def has_language_genre(item):
     )
 
 
+_ADMIN_USER_ID = None
+
+
+def get_admin_user_id(base_url, api_key):
+    """Jellyfin 10.11 returns HTTP 400 for GET /Items/{id} without a userId
+    query parameter, so resolve (and cache) an admin user id to include."""
+    global _ADMIN_USER_ID
+    if _ADMIN_USER_ID:
+        return _ADMIN_USER_ID
+    req = urllib.request.Request(f"{base_url}/Users")
+    req.add_header("X-Emby-Token", api_key)
+    req.add_header("Accept", "application/json")
+    with urllib.request.urlopen(req, timeout=30) as resp:
+        users = json.loads(resp.read())
+    admins = [u for u in users if (u.get("Policy") or {}).get("IsAdministrator")]
+    _ADMIN_USER_ID = (admins or users)[0]["Id"]
+    return _ADMIN_USER_ID
+
+
 def update_jellyfin_genre(base_url, api_key, item, language_code):
     item_id = item["Id"]
     current_genres = list(item.get("Genres") or [])
@@ -185,7 +204,8 @@ def update_jellyfin_genre(base_url, api_key, item, language_code):
 
     # Jellyfin's POST /Items/{id} requires the full BaseItemDto payload, not a
     # partial update. GET the current item, replace Genres, POST it back.
-    get_req = urllib.request.Request(f"{base_url}/Items/{item_id}")
+    user_id = get_admin_user_id(base_url, api_key)
+    get_req = urllib.request.Request(f"{base_url}/Items/{item_id}?userId={user_id}")
     get_req.add_header("X-Emby-Token", api_key)
     get_req.add_header("Accept", "application/json")
     with urllib.request.urlopen(get_req, timeout=30) as resp:
