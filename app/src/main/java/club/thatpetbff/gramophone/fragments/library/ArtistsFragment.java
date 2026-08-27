@@ -49,7 +49,9 @@ public class ArtistsFragment extends AbsLibraryPagerRecyclerViewCustomGridSizeFr
         query.setRecursive(true);
         query.setLimit(PreferenceUtil.getInstance(App.getInstance()).getPageSize());
         query.setStartIndex(getAdapter().getItemCount());
-        query.setParentId(QueryUtil.currentLibrary.getId());
+        if (QueryUtil.currentLibrary != null) {
+            query.setParentId(QueryUtil.currentLibrary.getId());
+        }
 
         query.setSortBy(new String[]{PreferenceUtil.getInstance(App.getInstance()).getArtistSortMethod().getApi()});
         query.setSortOrder(PreferenceUtil.getInstance(App.getInstance()).getArtistSortOrder().getApi());
