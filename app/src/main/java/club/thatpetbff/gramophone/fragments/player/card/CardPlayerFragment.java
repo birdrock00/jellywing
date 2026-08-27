@@ -419,7 +419,7 @@ public class CardPlayerFragment extends AbsPlayerFragment implements PlayerAlbum
             this.binding = binding;
         }
 
-        public AnimatorSet createDefaultColorChangeAnimatorSet(int newColor) {
+        public AnimatorSet createDefaultColorChangeAnimatorSet(int newColor, Animator... extraAnimators) {
             Animator backgroundAnimator;
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
                 int x = (int) (fragment.playbackControlsFragment.binding.playerPlayPauseFab.getX() + fragment.playbackControlsFragment.binding.playerPlayPauseFab.getWidth() / 2 + fragment.playbackControlsFragment.getView().getX());
@@ -433,9 +433,18 @@ public class CardPlayerFragment extends AbsPlayerFragment implements PlayerAlbum
             }
 
             AnimatorSet animatorSet = new AnimatorSet();
+            AnimatorSet.Builder builder = animatorSet.play(backgroundAnimator);
+            if (extraAnimators != null) {
+                for (Animator extra : extraAnimators) {
+                    if (extra != null) {
+                        builder.with(extra);
+                    }
+                }
+            }
 
-            animatorSet.play(backgroundAnimator);
-
+            // apply the duration only after every child has been added; mutating
+            // the set (e.g. play().with()) after setDuration() can race a running
+            // RenderNodeAnimator and crash with "Animator has already started"
             animatorSet.setDuration(ViewUtil.PHONOGRAPH_ANIM_TIME);
             return animatorSet;
         }
@@ -566,9 +575,9 @@ public class CardPlayerFragment extends AbsPlayerFragment implements PlayerAlbum
             if (!fragment.getLifecycle().getCurrentState().isAtLeast(Lifecycle.State.RESUMED)) return;
             if (currentAnimatorSet!=null) currentAnimatorSet.cancel();
             binding.playerSlidingLayout.setBackgroundColor(fragment.lastColor);
-            currentAnimatorSet = createDefaultColorChangeAnimatorSet(newColor);
-            currentAnimatorSet.play(ViewUtil.createBackgroundColorTransition(binding.playerToolbar, fragment.lastColor, newColor))
-                    .with(ViewUtil.createBackgroundColorTransition(fragment.getView().findViewById(R.id.status_bar), ThemeUtil.getColorDark(fragment.lastColor), ThemeUtil.getColorDark(newColor)));
+            currentAnimatorSet = createDefaultColorChangeAnimatorSet(newColor,
+                    ViewUtil.createBackgroundColorTransition(binding.playerToolbar, fragment.lastColor, newColor),
+                    ViewUtil.createBackgroundColorTransition(fragment.getView().findViewById(R.id.status_bar), ThemeUtil.getColorDark(fragment.lastColor), ThemeUtil.getColorDark(newColor)));
             currentAnimatorSet.start();
         }
     }

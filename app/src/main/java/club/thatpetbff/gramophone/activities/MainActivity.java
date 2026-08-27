@@ -44,6 +44,11 @@ public class MainActivity extends AbsMusicContentActivity implements CabHolder {
     private NavigationDrawerHeaderBinding navigationBinding;
     private boolean onLogout;
 
+    // True when the activity is being rebuilt after process death; fragments are
+    // restored before QueryUtil.currentLibrary is loaded, so they must be
+    // re-created against the library once it is available.
+    private boolean needsLibraryRebuild;
+
     @Nullable
     private AttachedCab cab;
 
@@ -58,6 +63,10 @@ public class MainActivity extends AbsMusicContentActivity implements CabHolder {
         super.onCreate(savedInstanceState);
 
         state = savedInstanceState;
+
+        // Even when fragments are restored from the saved state, a fresh process
+        // has a null QueryUtil.currentLibrary, so a library rebuild is required.
+        needsLibraryRebuild = QueryUtil.currentLibrary == null;
 
         setColor(PreferenceUtil.getInstance(this).getPrimaryColor());
         if (Build.VERSION.SDK_INT == Build.VERSION_CODES.KITKAT) {
@@ -92,7 +101,8 @@ public class MainActivity extends AbsMusicContentActivity implements CabHolder {
             setUpDrawerLayout();
 
             menu.getItem(0).setChecked(true);
-            if (state == null) {
+            if (state == null || needsLibraryRebuild) {
+                needsLibraryRebuild = false;
                 setCurrentFragment(LibraryFragment.newInstance());
             }
         });
@@ -144,7 +154,7 @@ public class MainActivity extends AbsMusicContentActivity implements CabHolder {
             }
 
             // only run the following code when a new library has been selected
-            if (menuItemId == QueryUtil.currentLibrary.getId().hashCode()) return true;
+            if (QueryUtil.currentLibrary != null && menuItemId == QueryUtil.currentLibrary.getId().hashCode()) return true;
 
             for (BaseItemDto itemDto : libraries) {
                 if (menuItemId == itemDto.getId().hashCode()) {
