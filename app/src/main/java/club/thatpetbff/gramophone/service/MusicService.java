@@ -625,12 +625,13 @@ public class MusicService extends Service implements SharedPreferences.OnSharedP
     }
 
     private void ensureStartedForPlayback() {
-        try {
-            startService(new Intent(this, MusicService.class));
-        } catch (IllegalStateException ignored) {
-            // The service can already be alive via binding; Android may reject a background
-            // start, but playback should still avoid crashing the current foreground screen.
-        }
+        // Deliberately a no-op. play() only ever runs while this service instance is
+        // alive (it is invoked from MusicPlayerRemote's bound reference or from this
+        // service's own onStartCommand), so restarting it here is redundant.
+        // Worse, on Android 12+ a background self-restart is DENIED by the system
+        // ("Background started FGS: Disallowed"). Repeating that attempt on every
+        // play command while backgrounded burns CPU until the watchdog kills the
+        // process for EXCESSIVE CPU USAGE, which abruptly stops playback.
     }
 
     public void back() {

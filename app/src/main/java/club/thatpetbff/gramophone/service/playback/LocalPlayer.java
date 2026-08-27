@@ -89,10 +89,21 @@ public class LocalPlayer implements Playback {
         public void onPlayerError(PlaybackException error) {
             Log.i(TAG, String.format("onPlayerError: %s", error.getMessage()));
 
-            exoPlayer.clearMediaItems();
-            exoPlayer.prepare();
-
-            Toast.makeText(context, context.getResources().getString(R.string.unplayable_file), Toast.LENGTH_SHORT).show();
+            // Do not destroy the whole queue when a single item fails to load (e.g. a
+            // dead direct-play/transcode URL after a server hiccup). Clearing the media
+            // items dead-ends the player in STATE_ENDED, which makes MusicService drop
+            // its foreground notification and churn foreground-service start/stop cycles
+            // that the system rejects from the background - eventually the watchdog kills
+            // the process for EXCESSIVE CPU USAGE. Skip to the next playable item instead.
+            int count = exoPlayer.getMediaItemCount();
+            int current = exoPlayer.getCurrentMediaItemIndex();
+            if (count > 0 && current >= 0 && current + 1 < count) {
+                exoPlayer.seekToNextMediaItem();
+                exoPlayer.prepare();
+            } else {
+                Toast.makeText(context, context.getResources().getString(R.string.unplayable_file), Toast.LENGTH_SHORT).show();
+                exoPlayer.setPlayWhenReady(false);
+            }
         }
     };
 

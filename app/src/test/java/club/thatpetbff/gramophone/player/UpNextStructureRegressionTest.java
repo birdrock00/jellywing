@@ -1,6 +1,7 @@
 package club.thatpetbff.gramophone.player;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
 import androidx.recyclerview.widget.RecyclerView;
@@ -121,8 +122,13 @@ public class UpNextStructureRegressionTest {
 
         assertTrue(source.contains("public void play() {\n        ensureStartedForPlayback();"));
         assertTrue(source.contains("private void ensureStartedForPlayback()"));
-        assertTrue(source.contains("startService(new Intent(this, MusicService.class));"));
-        assertTrue(source.contains("catch (IllegalStateException ignored)"));
+
+        // The service must NOT restart itself from the background: play() only runs while this
+        // instance is alive, and a background self-restart on Android 12+ is denied by the
+        // system. Repeating that denied attempt pegs the CPU until the watchdog kills the
+        // process for EXCESSIVE CPU USAGE, abruptly stopping playback.
+        assertFalse(source.contains("startService(new Intent(this, MusicService.class));"));
+        assertFalse(source.contains("catch (IllegalStateException ignored)"));
     }
 
     private static void assertUpNextLayout(String relativePath) throws IOException {
