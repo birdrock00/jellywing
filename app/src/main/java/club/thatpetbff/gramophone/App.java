@@ -10,13 +10,14 @@ import androidx.room.Room;
 
 import club.thatpetbff.gramophone.database.JellyDatabase;
 import club.thatpetbff.gramophone.helper.EventListener;
+import club.thatpetbff.gramophone.network.PatchedVolleyHttpClient;
 import club.thatpetbff.gramophone.util.PreferenceUtil;
+import club.thatpetbff.gramophone.util.ServerUrlUtil;
 import club.thatpetbff.gramophone.views.shortcuts.DynamicShortcutManager;
 import com.melegy.redscreenofdeath.RedScreenOfDeath;
 
 import org.jellyfin.apiclient.interaction.AndroidDevice;
 import org.jellyfin.apiclient.interaction.ApiClient;
-import org.jellyfin.apiclient.interaction.VolleyHttpClient;
 import org.jellyfin.apiclient.interaction.device.IDevice;
 import org.jellyfin.apiclient.interaction.http.IAsyncHttpClient;
 import org.jellyfin.apiclient.logging.AndroidLogger;
@@ -69,10 +70,10 @@ public class App extends Application {
         @SuppressLint("HardwareIds")
         String deviceId = Settings.Secure.getString(context.getContentResolver(), Settings.Secure.ANDROID_ID);
         String deviceName = android.os.Build.MODEL;
-        String server = PreferenceUtil.getInstance(context).getServer();
+        String server = ServerUrlUtil.normalize(PreferenceUtil.getInstance(context).getServer());
 
         ILogger logger = new AndroidLogger(context.getClass().getName());
-        IAsyncHttpClient httpClient = new VolleyHttpClient(logger, context);
+        IAsyncHttpClient httpClient = new PatchedVolleyHttpClient(logger, context);
         IDevice device = new AndroidDevice(deviceId, deviceName);
         EventListener eventListener = new EventListener();
 

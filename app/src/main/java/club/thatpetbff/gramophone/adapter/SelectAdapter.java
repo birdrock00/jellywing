@@ -15,6 +15,7 @@ import club.thatpetbff.gramophone.R;
 import club.thatpetbff.gramophone.activities.SplashActivity;
 import club.thatpetbff.gramophone.model.User;
 import club.thatpetbff.gramophone.util.PreferenceUtil;
+import club.thatpetbff.gramophone.util.ServerUrlUtil;
 import club.thatpetbff.gramophone.views.IconImageView;
 
 import java.util.List;
@@ -71,7 +72,7 @@ public class SelectAdapter extends RecyclerView.Adapter<SelectAdapter.ViewHolder
         public void onSelect(View v) {
             final User user = users.get(getBindingAdapterPosition());
 
-            PreferenceUtil.getInstance(activity).setServer(user.server);
+            PreferenceUtil.getInstance(activity).setServer(ServerUrlUtil.normalize(user.server));
             PreferenceUtil.getInstance(activity).setUser(user.id);
 
             activity.startActivity(new Intent(activity, SplashActivity.class));

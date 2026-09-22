@@ -44,7 +44,10 @@ public class QueryUtil {
                 URL url = new URL(baseUrl + "/Library/Refresh");
                 conn = (HttpURLConnection) url.openConnection();
                 conn.setRequestMethod("POST");
-                conn.setRequestProperty("X-Emby-Token", token);
+                conn.setRequestProperty("X-MediaBrowser-Token", token);
+                // Jellyfin 12 honors the canonical Authorization header; the
+                // legacy token header alone is challenged with 401.
+                conn.setRequestProperty("Authorization", "MediaBrowser Token=\"" + token + "\"");
                 conn.setConnectTimeout(10000);
                 conn.setReadTimeout(10000);
                 int code = conn.getResponseCode();
