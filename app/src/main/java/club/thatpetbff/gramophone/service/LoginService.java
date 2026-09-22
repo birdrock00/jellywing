@@ -13,6 +13,7 @@ import club.thatpetbff.gramophone.BuildConfig;
 import club.thatpetbff.gramophone.R;
 import club.thatpetbff.gramophone.model.User;
 import club.thatpetbff.gramophone.util.PreferenceUtil;
+import club.thatpetbff.gramophone.util.ServerUrlUtil;
 
 import org.jellyfin.apiclient.interaction.EmptyResponse;
 import org.jellyfin.apiclient.interaction.Response;
@@ -51,7 +52,7 @@ public class LoginService extends Service {
             return;
         }
 
-        App.getApiClient().ChangeServerLocation(user.server);
+        App.getApiClient().ChangeServerLocation(ServerUrlUtil.normalize(user.server));
         App.getApiClient().SetAuthenticationInfo(user.token, user.id);
         App.getApiClient().GetSystemInfoAsync(new Response<SystemInfo>() {
             @Override

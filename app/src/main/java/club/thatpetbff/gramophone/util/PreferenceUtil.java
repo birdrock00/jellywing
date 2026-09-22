@@ -511,11 +511,11 @@ public final class PreferenceUtil {
     }
 
     public String getServer() {
-        return mPreferences.getString(SERVER, "https://jellyfin.org");
+        return ServerUrlUtil.normalize(mPreferences.getString(SERVER, "https://jellyfin.org"));
     }
 
     public void setServer(String server) {
-        mPreferences.edit().putString(SERVER, server).apply();
+        mPreferences.edit().putString(SERVER, ServerUrlUtil.normalize(server)).apply();
     }
 
     public String getUser() {

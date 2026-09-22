@@ -4,6 +4,8 @@ import androidx.annotation.NonNull;
 import androidx.room.Entity;
 import androidx.room.PrimaryKey;
 
+import club.thatpetbff.gramophone.util.ServerUrlUtil;
+
 import org.jellyfin.apiclient.model.users.AuthenticationResult;
 
 import java.util.UUID;
@@ -26,7 +28,7 @@ public class User {
         this.id = result.getUser().getId();
         this.name = result.getUser().getName();
 
-        this.server = server;
+        this.server = ServerUrlUtil.normalize(server);
         this.token = result.getAccessToken();
     }
 }
