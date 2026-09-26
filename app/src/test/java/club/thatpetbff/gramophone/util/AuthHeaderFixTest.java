@@ -47,6 +47,17 @@ public class AuthHeaderFixTest {
     }
 
     @Test
+    public void tokenOnlyMapSynthesizesAuthorization() {
+        Map<String, String> headers = new HashMap<>();
+        headers.put(AuthHeaderFix.TOKEN_HEADER, "only-token");
+
+        AuthHeaderFix.apply(headers);
+
+        assertEquals("MediaBrowser Token=\"only-token\"",
+                headers.get(AuthHeaderFix.AUTHORIZATION_HEADER));
+    }
+
+    @Test
     public void nullMapIsIgnored() {
         AuthHeaderFix.apply(null);
     }

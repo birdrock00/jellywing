@@ -17,6 +17,7 @@ import androidx.media3.common.Player;
 import androidx.media3.database.StandaloneDatabaseProvider;
 import androidx.media3.datasource.DataSource;
 import androidx.media3.datasource.DefaultDataSource;
+import androidx.media3.datasource.DefaultHttpDataSource;
 import androidx.media3.datasource.FileDataSource;
 import androidx.media3.datasource.cache.CacheDataSink;
 import androidx.media3.datasource.cache.CacheDataSource;
@@ -25,14 +26,18 @@ import androidx.media3.datasource.cache.SimpleCache;
 import androidx.media3.exoplayer.ExoPlayer;
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory;
 
+import club.thatpetbff.gramophone.App;
 import club.thatpetbff.gramophone.R;
 import club.thatpetbff.gramophone.model.Song;
 import club.thatpetbff.gramophone.util.MusicUtil;
+import club.thatpetbff.gramophone.util.PlaybackAuthHeaders;
 import club.thatpetbff.gramophone.util.PreferenceUtil;
 
 import java.io.File;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -76,7 +81,10 @@ public class LocalPlayer implements Playback {
 
         @Override
         public void onMediaItemTransition(MediaItem mediaItem, int reason) {
-            Log.i(TAG, String.format("onMediaItemTransition: %s %d", mediaItem, reason));
+            // Never log MediaItem.toString(): it renders the stream URI which
+            // contains ?ApiKey=<token>. Log only the media ID and reason.
+            String mediaId = mediaItem != null ? String.valueOf(mediaItem.mediaId) : "null";
+            Log.i(TAG, String.format("onMediaItemTransition: id=%s reason=%d", mediaId, reason));
             if (listener != null) listener.onTrackChanged(reason);
         }
 
@@ -87,7 +95,16 @@ public class LocalPlayer implements Playback {
 
         @Override
         public void onPlayerError(PlaybackException error) {
-            Log.i(TAG, String.format("onPlayerError: %s", error.getMessage()));
+            // Error messages can echo the failing stream URL (?ApiKey=<token>);
+            // log only the stable error name/code, never the message/URL.
+            String errorName = "unknown";
+            int errorCode = 0;
+            try {
+                errorName = error.getErrorCodeName();
+                errorCode = error.errorCode;
+            } catch (Exception ignored) {
+            }
+            Log.i(TAG, String.format("onPlayerError: %s(%d)", errorName, errorCode));
 
             // Do not destroy the whole queue when a single item fails to load (e.g. a
             // dead direct-play/transcode URL after a server hiccup). Clearing the media
@@ -182,7 +199,7 @@ public class LocalPlayer implements Playback {
 
             MediaItem mediaItem;
 
-            if (uri.toString().contains("file://") || (containers.contains(song.container.toLowerCase(Locale.ROOT)) && codecs.contains(song.codec.toLowerCase(Locale.ROOT)) && song.bitRate <= Integer.parseInt(maxBitrate))) {
+            if (isDirectPlay(uri.toString(), song, containers, codecs, maxBitrate)) {
                 mediaItem = new MediaItem.Builder()
                         .setUri(uri)
                         .setMediaId(song.id)
@@ -208,18 +225,67 @@ public class LocalPlayer implements Playback {
         });
     }
 
+    static boolean isDirectPlay(String uriString,
+                                Song song,
+                                List<String> containers,
+                                List<String> codecs,
+                                String maxBitrate) {
+        if (uriString != null && uriString.contains("file://")) {
+            return true;
+        }
+        if (song == null || song.container == null || song.codec == null) {
+            return false;
+        }
+        int max;
+        try {
+            max = Integer.parseInt(maxBitrate);
+        } catch (NumberFormatException e) {
+            return false;
+        }
+        // bitRate==0 means unknown (MediaSources.bitrate null); preserve legacy
+        // behavior and allow direct-play when container/codec match.
+        return containers.contains(song.container.toLowerCase(Locale.ROOT))
+                && codecs.contains(song.codec.toLowerCase(Locale.ROOT))
+                && song.bitRate <= max;
+    }
+
+    static Map<String, String> buildPlaybackHeaders() {
+        try {
+            org.jellyfin.apiclient.interaction.ApiClient client = App.getApiClient();
+            if (client == null) {
+                return new HashMap<>();
+            }
+            return new HashMap<>(PlaybackAuthHeaders.build(
+                    client.getClientName(),
+                    client.getDeviceName(),
+                    client.getDeviceId(),
+                    client.getApplicationVersion(),
+                    client.getAccessToken()));
+        } catch (Exception e) {
+            return new HashMap<>();
+        }
+    }
+
     private DataSource.Factory buildDataSourceFactory() {
-        return () -> new CacheDataSource(
-                simpleCache,
-                new DefaultDataSource.Factory(context).createDataSource(),
-                new FileDataSource(),
-                new CacheDataSink.Factory()
-                        .setCache(simpleCache)
-                        .setFragmentSize(10 * 1024 * 1024)
-                        .createDataSink(),
-                CacheDataSource.FLAG_BLOCK_ON_CACHE,
-                null
-        );
+        // Build fresh auth headers on every DataSource creation so token
+        // refresh / re-login / server switch takes effect without restart.
+        // Header VALUES contain secrets; only names are ever logged.
+        return () -> {
+            DefaultHttpDataSource.Factory httpFactory = new DefaultHttpDataSource.Factory();
+            httpFactory.setDefaultRequestProperties(buildPlaybackHeaders());
+            DefaultDataSource.Factory upstreamFactory = new DefaultDataSource.Factory(context, httpFactory);
+            return new CacheDataSource(
+                    simpleCache,
+                    upstreamFactory.createDataSource(),
+                    new FileDataSource(),
+                    new CacheDataSink.Factory()
+                            .setCache(simpleCache)
+                            .setFragmentSize(10 * 1024 * 1024)
+                            .createDataSink(),
+                    CacheDataSource.FLAG_BLOCK_ON_CACHE,
+                    null
+            );
+        };
     }
 
     @Override

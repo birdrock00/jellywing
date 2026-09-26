@@ -41,13 +41,20 @@ public final class AuthHeaderFix {
         }
 
         String legacy = headers.get(LEGACY_AUTHORIZATION_HEADER);
+        String token = headers.get(TOKEN_HEADER);
+
         if (legacy == null || legacy.isEmpty()) {
+            // Token-only state (e.g. right after SetAuthenticationInfo) would
+            // otherwise 401 on Jellyfin 12; synthesize minimal modern auth.
+            if (token != null && !token.isEmpty()) {
+                headers.put(AUTHORIZATION_HEADER,
+                        "MediaBrowser Token=\"" + token.replace("\"", "") + "\"");
+            }
             return;
         }
 
-        String token = headers.get(TOKEN_HEADER);
         if (token != null && !token.isEmpty() && !legacy.contains("Token=")) {
-            legacy = legacy + ", Token=\"" + token + "\"";
+            legacy = legacy + ", Token=\"" + token.replace("\"", "") + "\"";
         }
 
         headers.put(AUTHORIZATION_HEADER, legacy);

@@ -71,9 +71,10 @@ public class JellyfinServerStreamingSmokeTest {
     }
 
     private int readStreamBytes(String accessToken, String itemId) throws IOException {
-        String path = "/Audio/" + encode(itemId) + "/stream?static=true&api_key=" + encode(accessToken);
+        // Jellyfin 12: legacy ?api_key= and X-Emby-Token 401; use ?ApiKey= + Authorization.
+        String path = "/Audio/" + encode(itemId) + "/stream?static=true&ApiKey=" + encode(accessToken);
         HttpURLConnection connection = openConnection(path);
-        connection.setRequestProperty("X-Emby-Token", accessToken);
+        connection.setRequestProperty("Authorization", authorizationHeader(accessToken));
         connection.setRequestProperty("Range", "bytes=0-4095");
 
         int status = connection.getResponseCode();
@@ -91,9 +92,11 @@ public class JellyfinServerStreamingSmokeTest {
         HttpURLConnection connection = openConnection(path);
         connection.setRequestMethod(method);
         connection.setRequestProperty("Accept", "application/json");
-        connection.setRequestProperty("X-Emby-Authorization", authorizationHeader());
+        // Jellyfin 12 requires Authorization (MediaBrowser scheme); legacy
+        // X-Emby-Authorization is 401 when legacy auth is disabled.
+        connection.setRequestProperty("Authorization", authorizationHeader(accessToken));
         if (accessToken != null) {
-            connection.setRequestProperty("X-Emby-Token", accessToken);
+            connection.setRequestProperty("X-MediaBrowser-Token", accessToken);
         }
 
         if (body != null) {
@@ -142,9 +145,17 @@ public class JellyfinServerStreamingSmokeTest {
     }
 
     private String authorizationHeader() {
-        return "MediaBrowser Client=\"" + CLIENT_NAME + "\", Device=\"JUnit\", DeviceId=\""
+        return authorizationHeader(null);
+    }
+
+    private String authorizationHeader(String accessToken) {
+        String base = "MediaBrowser Client=\"" + CLIENT_NAME + "\", Device=\"JUnit\", DeviceId=\""
                 + UUID.nameUUIDFromBytes(CLIENT_NAME.getBytes(StandardCharsets.UTF_8))
                 + "\", Version=\"" + CLIENT_VERSION + "\"";
+        if (accessToken != null && !accessToken.isEmpty()) {
+            base += ", Token=\"" + accessToken + "\"";
+        }
+        return base;
     }
 
     private static boolean hasText(String value) {

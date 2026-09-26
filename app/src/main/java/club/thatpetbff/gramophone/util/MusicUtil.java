@@ -25,7 +25,6 @@ import java.io.File;
 import java.util.List;
 import java.util.Locale;
 import java.util.stream.Collectors;
-import java.util.stream.Stream;
 
 public class MusicUtil {
     public static String getTranscodeUri(Song song) {
@@ -46,10 +45,16 @@ public class MusicUtil {
         builder.append("&MaxStreamingBitrate=").append(preferenceUtil.getMaximumBitrate());
 
         List<Codec> codecs = preferenceUtil.getDirectPlayCodecs();
-        Stream<String> values = codecs.stream().map(codec -> codec.value);
+        // Jellyfin /Audio/universal expects Container as comma-separated container
+        // names (e.g. "mp3,flac,m4a"). Codec.value is "container|codec" for UI
+        // display and must not be sent; pipes yield HTTP 400 on Jellyfin 12.
+        String containers = codecs.stream()
+                .map(codec -> codec.container.toLowerCase(Locale.ROOT))
+                .distinct()
+                .collect(Collectors.joining(","));
 
-        if (codecs.size() != 0) {
-            builder.append("&Container=").append(values.collect(Collectors.joining(",")));
+        if (!containers.isEmpty()) {
+            builder.append("&Container=").append(containers);
         }
 
         builder.append("&TranscodingContainer=ts");
@@ -58,7 +63,13 @@ public class MusicUtil {
         // preferred codec when transcoding
         // ToDo: Think about removing this. The server doesn't seem to respect it anyways
         builder.append("&AudioCodec=").append(preferenceUtil.getTranscodeCodec());
-        builder.append("&api_key=").append(apiClient.getAccessToken());
+        // Jellyfin 12 disables legacy auth by default; only ApiKey (capital A/K)
+        // and Authorization: MediaBrowser Token="..." work. Omit the query when
+        // logged out instead of sending a literal null token.
+        String token = apiClient.getAccessToken();
+        if (token != null && !token.isEmpty()) {
+            builder.append("&ApiKey=").append(token);
+        }
 
         Log.i(MusicUtil.class.getName(), "playing audio: " + song.title);
         return builder.toString();
@@ -72,7 +83,12 @@ public class MusicUtil {
         builder.append(song.id);
         builder.append("/Download");
 
-        builder.append("?api_key=").append(App.getApiClient().getAccessToken());
+        // Jellyfin 12: ApiKey with capital A/K; lowercase variant is legacy and 401s.
+        // Omit when logged out instead of sending a literal null token.
+        String token = App.getApiClient().getAccessToken();
+        if (token != null && !token.isEmpty()) {
+            builder.append("?ApiKey=").append(token);
+        }
 
         return builder.toString();
     }
