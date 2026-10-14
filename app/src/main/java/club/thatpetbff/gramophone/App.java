@@ -10,6 +10,7 @@ import androidx.room.Room;
 
 import club.thatpetbff.gramophone.database.JellyDatabase;
 import club.thatpetbff.gramophone.helper.EventListener;
+import club.thatpetbff.gramophone.model.User;
 import club.thatpetbff.gramophone.network.PatchedVolleyHttpClient;
 import club.thatpetbff.gramophone.util.PreferenceUtil;
 import club.thatpetbff.gramophone.util.ServerUrlUtil;
@@ -86,6 +87,40 @@ public class App extends Application {
 
     public static ApiClient getApiClient() {
         return apiClient;
+    }
+
+    /**
+     * Rehydrates the in-memory ApiClient with the saved user's credentials when
+     * it is not authenticated yet.
+     *
+     * <p>A fresh process creates the client without a token; the token only
+     * arrives when {@code LoginService}'s async startup chain runs. If the user
+     * taps play before that completes, stream URLs and ExoPlayer request headers
+     * are built unauthenticated and the server rejects them (Jellyfin 12
+     * returns 401), so playback dies a few seconds in. Restoring from the local
+     * Room DB is synchronous and involves no network I/O, so it is safe to run
+     * on any thread right before a stream request is built.
+     */
+    public static void ensureAuthenticatedApiClient() {
+        if (apiClient == null || database == null || app == null) {
+            return;
+        }
+        String accessToken = apiClient.getAccessToken();
+        String currentUserId = apiClient.getCurrentUserId();
+        if ((accessToken != null && !accessToken.isEmpty())
+                || (currentUserId != null && !currentUserId.isEmpty())) {
+            return;
+        }
+        String userName = PreferenceUtil.getInstance(app).getUser();
+        if (userName == null) {
+            return;
+        }
+        User user = database.userDao().getUser(userName);
+        if (user == null || user.token == null) {
+            return;
+        }
+        apiClient.ChangeServerLocation(ServerUrlUtil.normalize(user.server));
+        apiClient.SetAuthenticationInfo(user.token, user.id);
     }
 
     public static App getInstance() {

@@ -30,6 +30,12 @@ public class MusicUtil {
     public static String getTranscodeUri(Song song) {
         PreferenceUtil preferenceUtil = PreferenceUtil.getInstance(App.getInstance());
 
+        // Ensure the in-memory client carries the saved token before building
+        // the URL: right after a process restart it is unauthenticated until
+        // LoginService's async chain finishes, and a URL built without ?ApiKey=
+        // gets 401'd by Jellyfin 12 (local DB restore, no network I/O).
+        App.ensureAuthenticatedApiClient();
+
         StringBuilder builder = new StringBuilder(256);
         ApiClient apiClient = App.getApiClient();
 

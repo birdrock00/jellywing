@@ -20,6 +20,13 @@ public interface Playback {
 
     boolean hasMediaItems();
 
+    /**
+     * Whether the player is (or has been left) in a fatal error state since
+     * the last time playback actually started. Callers should refresh the
+     * media source before starting playback when this is true.
+     */
+    boolean isErrored();
+
     void start();
 
     void pause();

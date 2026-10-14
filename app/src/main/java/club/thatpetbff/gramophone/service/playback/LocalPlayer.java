@@ -57,6 +57,23 @@ public class LocalPlayer implements Playback {
 
     private PlaybackListener listener;
 
+    /**
+     * True while the player is in a fatal error state since the last time
+     * playback actually started. Lets MusicService refresh the media source
+     * (fresh stream URL + fresh auth headers) on the next play tap instead of
+     * letting the user have to force-stop and relaunch the app.
+     */
+    private volatile boolean errored = false;
+
+    /**
+     * Budget of automatic skip-to-next actions triggered by player errors.
+     * Without a cap, a systemic failure (logged out, server offline, Wi-Fi
+     * loss) makes onPlayerError skip item after item until the whole queue
+     * is burned through in a few seconds, ending on the last item with
+     * playback stopped. Only touched on the player thread.
+     */
+    private final ErrorSkipBudget errorSkipBudget = new ErrorSkipBudget();
+
     private final ExecutorService executorService = Executors.newSingleThreadExecutor();
 
     @SuppressWarnings("FieldCanBeLocal")
@@ -64,6 +81,12 @@ public class LocalPlayer implements Playback {
         @Override
         public void onPlayWhenReadyChanged(boolean playWhenReady, int reason) {
             Log.i(TAG, String.format("onPlayWhenReadyChanged: %b %d", playWhenReady, reason));
+            if (playWhenReady) {
+                // Playback is (re)starting; a past error no longer describes
+                // the player's state.
+                errored = false;
+                errorSkipBudget.reset();
+            }
             if (listener != null) listener.onReadyChanged(playWhenReady, reason);
         }
 
@@ -106,15 +129,24 @@ public class LocalPlayer implements Playback {
             }
             Log.i(TAG, String.format("onPlayerError: %s(%d)", errorName, errorCode));
 
+            errored = true;
+
             // Do not destroy the whole queue when a single item fails to load (e.g. a
             // dead direct-play/transcode URL after a server hiccup). Clearing the media
             // items dead-ends the player in STATE_ENDED, which makes MusicService drop
             // its foreground notification and churn foreground-service start/stop cycles
             // that the system rejects from the background - eventually the watchdog kills
             // the process for EXCESSIVE CPU USAGE. Skip to the next playable item instead.
+            //
+            // Cap consecutive error-driven skips: when every item fails (auth loss,
+            // server offline, network down) skipping just walks the whole queue in a
+            // few seconds and stops on the last item. Staying on the failed item lets
+            // the next play tap retry it (MusicService refreshes the source first).
             int count = exoPlayer.getMediaItemCount();
             int current = exoPlayer.getCurrentMediaItemIndex();
-            if (count > 0 && current >= 0 && current + 1 < count) {
+            if (count > 0 && current >= 0 && current + 1 < count
+                    && errorSkipBudget.allowSkip()) {
+                errorSkipBudget.recordSkip();
                 exoPlayer.seekToNextMediaItem();
                 exoPlayer.prepare();
             } else {
@@ -156,6 +188,8 @@ public class LocalPlayer implements Playback {
 
             runOnPlayerThread(() -> {
                 if (resetCurrentSong) {
+                    errored = false;
+                    errorSkipBudget.reset();
                     exoPlayer.stop();
                     exoPlayer.clearMediaItems();
                     exoPlayer.setMediaItems(mediaItems, position, progress);
@@ -255,6 +289,11 @@ public class LocalPlayer implements Playback {
             if (client == null) {
                 return new HashMap<>();
             }
+            // Right after a process restart the in-memory client is unauthenticated
+            // until LoginService's async chain runs; rehydrate the saved token
+            // (local DB only, no network) so stream requests never ship with an
+            // empty Authorization header and 401 a few seconds into playback.
+            App.ensureAuthenticatedApiClient();
             return new HashMap<>(PlaybackAuthHeaders.build(
                     client.getClientName(),
                     client.getDeviceName(),
@@ -324,9 +363,22 @@ public class LocalPlayer implements Playback {
     }
 
     @Override
+    public boolean isErrored() {
+        return errored;
+    }
+
+    @Override
     public void start() {
         runOnPlayerThread(() -> {
-            if (exoPlayer.getMediaItemCount() > 0 && exoPlayer.getPlaybackState() == Player.STATE_IDLE) {
+            if (exoPlayer.getMediaItemCount() > 0
+                    && (exoPlayer.getPlaybackState() == Player.STATE_IDLE || errored)) {
+                // A play tap on an errored player must re-prepare: media3 leaves
+                // the player in an ended state after onPlayerError, and
+                // setPlayWhenReady(true) alone does nothing there. Without this
+                // a play tap on a dead player does nothing, which is why the
+                // user had to kill and relaunch the app to get playback back.
+                // (errored is set in onPlayerError and cleared when playback
+                // actually starts again.)
                 exoPlayer.prepare();
             }
             exoPlayer.setPlayWhenReady(true);

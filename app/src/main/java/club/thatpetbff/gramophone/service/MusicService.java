@@ -615,7 +615,16 @@ public class MusicService extends Service implements SharedPreferences.OnSharedP
     public void play() {
         ensureStartedForPlayback();
 
-        if (!playback.hasMediaItems() && queueManager.getCurrentSong() != null) {
+        if (queueManager.getCurrentSong() != null
+                && (playback.isErrored() || !playback.hasMediaItems())) {
+            // Refresh the media source before starting: a play tap after the
+            // stream died in the background (network loss, expired transcode
+            // session, logged-out headers) or after a player error would
+            // otherwise resume the dead/stale in-memory stream - or do
+            // nothing at all on an errored player. Rebuilding the queue
+            // generates fresh stream URLs and auth headers, exactly like a
+            // full app restart does, so the user no longer has to kill and
+            // relaunch the app to get playback back.
             playback.setQueue(queueManager.getPlayingQueue(), queueManager.getPosition(), 0, true);
         }
 
