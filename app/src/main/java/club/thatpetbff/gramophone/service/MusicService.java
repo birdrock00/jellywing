@@ -170,6 +170,7 @@ public class MusicService extends Service implements SharedPreferences.OnSharedP
             notifyChange(STATE_CHANGED);
 
             if (ready) {
+                ensureStartedForPlayback();
                 progressHandler.sendEmptyMessage(TRACK_STARTED);
             } else if (reason == PLAY_WHEN_READY_CHANGE_REASON_END_OF_MEDIA_ITEM) {
                 progressHandler.sendEmptyMessage(TRACK_ENDED);
@@ -634,13 +635,23 @@ public class MusicService extends Service implements SharedPreferences.OnSharedP
     }
 
     private void ensureStartedForPlayback() {
-        // Deliberately a no-op. play() only ever runs while this service instance is
-        // alive (it is invoked from MusicPlayerRemote's bound reference or from this
-        // service's own onStartCommand), so restarting it here is redundant.
-        // Worse, on Android 12+ a background self-restart is DENIED by the system
-        // ("Background started FGS: Disallowed"). Repeating that attempt on every
-        // play command while backgrounded burns CPU until the watchdog kills the
-        // process for EXCESSIVE CPU USAGE, which abruptly stops playback.
+        // Give this service the "started" lifecycle while audio is playing so it
+        // survives the last activity unbinding. The service is created by the
+        // activities with BIND_AUTO_CREATE only; on OEM skins that clear the
+        // app's task when it leaves the foreground (press Home), that final
+        // unbind destroyed a bound-only service - and onDestroy() released
+        // ExoPlayer, killing playback a few seconds into the song. That was the
+        // "plays a few seconds after reopening the app, then stops" bug. A
+        // self startService on an already-running service is allowed from any
+        // app state and only re-enters onStartCommand (no action = no-op), so
+        // it also cannot trigger the background-FGS watchdog loops that the
+        // old restart dance caused.
+        try {
+            startService(new Intent(this, MusicService.class));
+        } catch (Exception ignored) {
+            // Rare: start not permitted from the current app state. The service
+            // is only alive because something else started it, so nothing to do.
+        }
     }
 
     public void back() {

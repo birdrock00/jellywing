@@ -123,12 +123,15 @@ public class UpNextStructureRegressionTest {
         assertTrue(source.contains("public void play() {\n        ensureStartedForPlayback();"));
         assertTrue(source.contains("private void ensureStartedForPlayback()"));
 
-        // The service must NOT restart itself from the background: play() only runs while this
-        // instance is alive, and a background self-restart on Android 12+ is denied by the
-        // system. Repeating that denied attempt pegs the CPU until the watchdog kills the
-        // process for EXCESSIVE CPU USAGE, abruptly stopping playback.
-        assertFalse(source.contains("startService(new Intent(this, MusicService.class));"));
-        assertFalse(source.contains("catch (IllegalStateException ignored)"));
+        // The service must promote itself to the "started" lifecycle when playback
+        // begins, otherwise a bound-only service is destroyed when the app's task
+        // goes away and ExoPlayer is released mid-song. The self-start is a plain
+        // startService on the already-running service (allowed from any app state)
+        // and is guarded so a denied start can never trigger a retry loop. It must
+        // NOT be a startForegroundService, which is what caused the old background-FGS
+        // denial loop that made the watchdog kill the process.
+        assertTrue(source.contains("startService(new Intent(this, MusicService.class));"));
+        assertFalse(source.contains("startForegroundService(new Intent(this, MusicService.class)"));
     }
 
     private static void assertUpNextLayout(String relativePath) throws IOException {
