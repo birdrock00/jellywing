@@ -61,6 +61,7 @@
     <string name="playlists">Playlists</string>
     <string name="language">Language</string>
     <string name="favorites">Favorites</string>
+    <string name="favorite_failed">Could not update favorites</string>
     <string name="no_playlists">No playlists</string>
     <string name="no_albums">No albums</string>
     <string name="no_songs">No songs</string>

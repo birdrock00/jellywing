@@ -225,21 +225,56 @@ public class MusicUtil {
     }
 
     public static void toggleFavorite(Song song) {
-        song.favorite = !song.favorite;
+        if (song == null || TextUtils.isEmpty(song.id)) {
+            return;
+        }
+
+        // A fresh process starts with an unauthenticated ApiClient; without this
+        // getCurrentUserId() is empty and the update would target /Users//... or
+        // throw, leaving the UI toggled while the server never heard anything.
+        App.ensureAuthenticatedApiClient();
+
+        final boolean previous = song.favorite;
+        final boolean desired = !previous;
+        song.favorite = desired;
 
         String user = App.getApiClient().getCurrentUserId();
-        App.getApiClient().UpdateFavoriteStatusAsync(song.id, user, song.favorite, new Response<UserItemDataDto>() {
+        if (TextUtils.isEmpty(user)) {
+            song.favorite = previous;
+            toast(R.string.favorite_failed);
+            return;
+        }
+
+        App.getApiClient().UpdateFavoriteStatusAsync(song.id, user, desired, new Response<UserItemDataDto>() {
                 @Override
                 public void onResponse(UserItemDataDto data) {
-                    song.favorite = data.getIsFavorite();
+                    // The server response is the source of truth.
+                    song.favorite = data != null && data.getIsFavorite();
+                    FavoritesStore.notifyChanged();
+                    toast(song.favorite
+                            ? R.string.action_add_to_favorites
+                            : R.string.action_remove_from_favorites);
                 }
 
                 @Override
                 public void onError(Exception exception) {
                     exception.printStackTrace();
+                    // Roll the optimistic toggle back so the heart never lies:
+                    // a later tap then re-sends the same desired state instead of
+                    // an opposite DELETE that silently "unfavorites" nothing.
+                    song.favorite = previous;
+                    FavoritesStore.notifyChanged();
+                    toast(R.string.favorite_failed);
                 }
             }
         );
+    }
+
+    private static void toast(int stringRes) {
+        try {
+            Toast.makeText(App.getInstance(), stringRes, Toast.LENGTH_SHORT).show();
+        } catch (Exception ignored) {
+        }
     }
 
     @NonNull

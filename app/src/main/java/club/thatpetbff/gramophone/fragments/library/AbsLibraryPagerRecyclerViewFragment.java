@@ -85,6 +85,36 @@ public abstract class AbsLibraryPagerRecyclerViewFragment<A extends RecyclerView
         loadItems(0);
     }
 
+    /**
+     * Re-query the tab from the server, but only when the view exists and the
+     * list is not already being fetched. Safe to call from anywhere on the
+     * main thread (e.g. after a favorite was toggled).
+     */
+    protected void reloadNow() {
+        if (binding == null || loading || !isAdded()) {
+            return;
+        }
+        loading = true;
+        invalidateAdapter();
+    }
+
+    /**
+     * Tabs can override this to always show fresh data whenever the user
+     * swipes to them. Called via setUserVisibleHint by the ViewPager.
+     */
+    protected boolean shouldReloadOnVisible() {
+        return false;
+    }
+
+    @Override
+    @SuppressWarnings("deprecation")
+    public void setUserVisibleHint(boolean isVisibleToUser) {
+        super.setUserVisibleHint(isVisibleToUser);
+        if (isVisibleToUser && shouldReloadOnVisible()) {
+            reloadNow();
+        }
+    }
+
     protected void invalidateLayoutManager() {
         initLayoutManager();
         binding.recyclerView.setLayoutManager(layoutManager);
@@ -124,6 +154,9 @@ public abstract class AbsLibraryPagerRecyclerViewFragment<A extends RecyclerView
 
     @Override
     public void onOffsetChanged(AppBarLayout appBarLayout, int i) {
+        if (binding == null) {
+            return;
+        }
         binding.container.setPadding(binding.container.getPaddingLeft(), binding.container.getPaddingTop(), binding.container.getPaddingRight(), getLibraryFragment().getTotalAppBarScrollingRange() + i);
 
         int last = 0;
@@ -150,9 +183,13 @@ public abstract class AbsLibraryPagerRecyclerViewFragment<A extends RecyclerView
         super.onDestroyView();
 
         getLibraryFragment().removeOnAppBarOffsetChangedListener(this);
+        binding = null;
     }
 
     private void checkIsEmpty() {
+        if (binding == null) {
+            return;
+        }
         binding.empty.setText(getEmptyMessage());
         binding.empty.setVisibility(adapter == null || adapter.getItemCount() == 0 ? View.VISIBLE : View.GONE);
     }
