@@ -2,6 +2,8 @@ package club.thatpetbff.gramophone.util;
 
 import android.content.Context;
 import android.content.Intent;
+import android.os.Handler;
+import android.os.Looper;
 import android.text.TextUtils;
 import android.util.Log;
 import android.widget.Toast;
@@ -16,6 +18,7 @@ import club.thatpetbff.gramophone.model.Artist;
 import club.thatpetbff.gramophone.model.Codec;
 import club.thatpetbff.gramophone.model.Genre;
 import club.thatpetbff.gramophone.model.Song;
+import club.thatpetbff.gramophone.service.MusicService;
 
 import org.jellyfin.apiclient.interaction.ApiClient;
 import org.jellyfin.apiclient.interaction.Response;
@@ -238,6 +241,11 @@ public class MusicUtil {
         final boolean desired = !previous;
         song.favorite = desired;
 
+        // While an item is the playing one, every server progress report rewrites its user
+        // data row from a session snapshot that predates this toggle, reverting it. Stop
+        // reporting that item until the track changes (MusicService checks this id).
+        MusicService.sSuppressServerReportsForItemId = song.id;
+
         String user = App.getApiClient().getCurrentUserId();
         if (TextUtils.isEmpty(user)) {
             song.favorite = previous;
@@ -254,6 +262,27 @@ public class MusicUtil {
                     toast(song.favorite
                             ? R.string.action_add_to_favorites
                             : R.string.action_remove_from_favorites);
+
+                    // A progress report sent just before the suppression above can still be
+                    // in flight and land after this write, re-persisting the stale snapshot.
+                    // Re-assert once the smoke settles; nothing else writes afterwards.
+                    if (song.favorite) {
+                        new Handler(Looper.getMainLooper()).postDelayed(() -> {
+                            if (song.favorite) {
+                                App.getApiClient().UpdateFavoriteStatusAsync(song.id,
+                                        App.getApiClient().getCurrentUserId(), true,
+                                        new Response<UserItemDataDto>() {
+                                            @Override
+                                            public void onResponse(UserItemDataDto ignored) {
+                                            }
+
+                                            @Override
+                                            public void onError(Exception exception) {
+                                            }
+                                        });
+                            }
+                        }, 3000);
+                    }
                 }
 
                 @Override

@@ -105,6 +105,14 @@ public class MusicService extends Service implements SharedPreferences.OnSharedP
     public static final int TRACK_CHANGED = 1;
     public static final int TRACK_ENDED = 2;
 
+    /**
+     * Id of an item whose server playback reports must be skipped, set when its favorite
+     * state is toggled while the item is the playing one. Progress reports for that item
+     * make the server rewrite its user data (including IsFavorite) from a session snapshot
+     * that predates the toggle, silently undoing the favorite. Cleared on track change.
+     */
+    public static volatile String sSuppressServerReportsForItemId;
+
     public static final int SAVE_QUEUE = 0;
     public static final int LOAD_QUEUE = 9;
 
@@ -815,6 +823,9 @@ public class MusicService extends Service implements SharedPreferences.OnSharedP
         }
 
         public void onNext() {
+            // New track: the previous song's report suppression expires with it.
+            sSuppressServerReportsForItemId = null;
+
             PlaybackStartInfo startInfo = new PlaybackStartInfo();
 
             startInfo.setItemId(mService.get().queueManager.getCurrentSong().id);
@@ -833,6 +844,15 @@ public class MusicService extends Service implements SharedPreferences.OnSharedP
             Date time = new Date(System.currentTimeMillis());
 
             if (current == null) {
+                return;
+            }
+
+            // The server re-saves the whole user data row of the playing item from its
+            // session snapshot on every progress report, and that snapshot does not see
+            // favorite writes made mid-session - a song favorited while playing gets
+            // reverted by the next tick. Do not report (nor mark played) for an item
+            // whose favorite state was just toggled; see MusicUtil.toggleFavorite.
+            if (current.id != null && current.id.equals(sSuppressServerReportsForItemId)) {
                 return;
             }
 
