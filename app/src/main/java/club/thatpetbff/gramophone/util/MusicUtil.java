@@ -4,6 +4,7 @@ import android.content.Context;
 import android.content.Intent;
 import android.os.Handler;
 import android.os.Looper;
+import android.os.SystemClock;
 import android.text.TextUtils;
 import android.util.Log;
 import android.widget.Toast;
@@ -241,10 +242,12 @@ public class MusicUtil {
         final boolean desired = !previous;
         song.favorite = desired;
 
-        // While an item is the playing one, every server progress report rewrites its user
-        // data row from a session snapshot that predates this toggle, reverting it. Stop
-        // reporting that item until the track changes (MusicService checks this id).
+        // While an item is the playing one, every server playback report rewrites its user
+        // data row from a session snapshot that predates this toggle, reverting it. Go
+        // silent on that item for long enough that the server's stale session dies; the
+        // next report then rebuilds it from fresh data (MusicService enforces the window).
         MusicService.sSuppressServerReportsForItemId = song.id;
+        MusicService.sSuppressServerReportsUntilMs = SystemClock.elapsedRealtime() + 60_000L;
 
         String user = App.getApiClient().getCurrentUserId();
         if (TextUtils.isEmpty(user)) {
@@ -267,7 +270,7 @@ public class MusicUtil {
                     // in flight and land after this write, re-persisting the stale snapshot.
                     // Re-assert once the smoke settles; nothing else writes afterwards.
                     if (song.favorite) {
-                        new Handler(Looper.getMainLooper()).postDelayed(() -> {
+                        final Runnable reassert = () -> {
                             if (song.favorite) {
                                 App.getApiClient().UpdateFavoriteStatusAsync(song.id,
                                         App.getApiClient().getCurrentUserId(), true,
@@ -281,7 +284,14 @@ public class MusicUtil {
                                             }
                                         });
                             }
-                        }, 3000);
+                        };
+                        Handler handler = new Handler(Looper.getMainLooper());
+                        // A report already in flight when the suppression armed can still
+                        // land after this write and re-persist the stale snapshot.
+                        handler.postDelayed(reassert, 3000);
+                        // One more just after the suppression window, when the first fresh
+                        // report about this item may re-create the server session.
+                        handler.postDelayed(reassert, 75_000);
                     }
                 }
 
