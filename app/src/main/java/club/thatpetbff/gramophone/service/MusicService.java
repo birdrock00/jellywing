@@ -113,7 +113,6 @@ public class MusicService extends Service implements SharedPreferences.OnSharedP
      * session (it expires on inactivity) so the next report re-creates it from fresh data.
      */
     public static volatile String sSuppressServerReportsForItemId;
-    public static volatile long sSuppressServerReportsUntilMs;
 
     public static final int SAVE_QUEUE = 0;
     public static final int LOAD_QUEUE = 9;
@@ -830,10 +829,8 @@ public class MusicService extends Service implements SharedPreferences.OnSharedP
 
             // A re-Start for the item whose favorite was just toggled (pause/resume,
             // re-prepare, skip back) would rewrite its user data from the server's stale
-            // session snapshot; hold it back until the suppression window passes.
-            if (current.id != null
-                    && current.id.equals(sSuppressServerReportsForItemId)
-                    && SystemClock.elapsedRealtime() < sSuppressServerReportsUntilMs) {
+            // session instance; hold it back for as long as that item is the current one.
+            if (current.id != null && current.id.equals(sSuppressServerReportsForItemId)) {
                 return;
             }
 
