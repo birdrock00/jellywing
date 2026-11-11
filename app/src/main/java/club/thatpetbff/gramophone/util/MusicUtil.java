@@ -245,8 +245,12 @@ public class MusicUtil {
         // data row from the session's item instance, which predates this toggle and never
         // refreshes while the session lives. Go silent on that item until a different one
         // becomes current (MusicService enforces this); a later fresh playback rebuilds a
-        // session from current database data, so reports become harmless again.
+        // session from current database data, so reports become harmless again. Persisted:
+        // reopening the app used to fire Sessions/Playing restores that reverted the
+        // favorite before the user even reached the tab again.
         MusicService.sSuppressServerReportsForItemId = song.id;
+        App.getInstance().getSharedPreferences(MusicService.GUARD_PREFS, Context.MODE_PRIVATE)
+                .edit().putString(MusicService.GUARD_KEY, song.id).apply();
 
         String user = App.getApiClient().getCurrentUserId();
         if (TextUtils.isEmpty(user)) {

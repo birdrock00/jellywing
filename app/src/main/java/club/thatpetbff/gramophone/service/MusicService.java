@@ -114,6 +114,29 @@ public class MusicService extends Service implements SharedPreferences.OnSharedP
      */
     public static volatile String sSuppressServerReportsForItemId;
 
+    public static final String GUARD_PREFS = "favorites_guard";
+    public static final String GUARD_KEY = "suppress_report_item_id";
+
+    /**
+     * Report-suppression lookup for the given item id, lazily restoring the guard from
+     * disk: toggling a favorite and then reopening the app must NOT let the restore-time
+     * Sessions/Playing reports re-persist the server's pre-toggle snapshot.
+     */
+    public static boolean isServerReportSuppressed(String itemId) {
+        if (sSuppressServerReportsForItemId == null) {
+            sSuppressServerReportsForItemId = App.getInstance()
+                    .getSharedPreferences(GUARD_PREFS, Context.MODE_PRIVATE)
+                    .getString(GUARD_KEY, null);
+        }
+        return itemId != null && itemId.equals(sSuppressServerReportsForItemId);
+    }
+
+    public static void clearServerReportSuppression() {
+        sSuppressServerReportsForItemId = null;
+        App.getInstance().getSharedPreferences(GUARD_PREFS, Context.MODE_PRIVATE)
+                .edit().remove(GUARD_KEY).apply();
+    }
+
     public static final int SAVE_QUEUE = 0;
     public static final int LOAD_QUEUE = 9;
 
@@ -828,13 +851,14 @@ public class MusicService extends Service implements SharedPreferences.OnSharedP
             if (current == null) return;
 
             // A re-Start for the item whose favorite was just toggled (pause/resume,
-            // re-prepare, skip back) would rewrite its user data from the server's stale
-            // session instance; hold it back for as long as that item is the current one.
-            if (current.id != null && current.id.equals(sSuppressServerReportsForItemId)) {
+            // re-prepare, skip back, or the queue restore after an app reopen) would
+            // rewrite its user data from the server's stale session instance; hold it
+            // back for as long as that item is the current one.
+            if (isServerReportSuppressed(current.id)) {
                 return;
             }
 
-            sSuppressServerReportsForItemId = null;
+            clearServerReportSuppression();
 
             PlaybackStartInfo startInfo = new PlaybackStartInfo();
 
@@ -862,7 +886,7 @@ public class MusicService extends Service implements SharedPreferences.OnSharedP
             // favorite writes made mid-session - a song favorited while playing gets
             // reverted by the next tick. Do not report (nor mark played) for an item
             // whose favorite state was just toggled; see MusicUtil.toggleFavorite.
-            if (current.id != null && current.id.equals(sSuppressServerReportsForItemId)) {
+            if (isServerReportSuppressed(current.id)) {
                 return;
             }
 
