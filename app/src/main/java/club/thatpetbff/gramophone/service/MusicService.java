@@ -19,7 +19,6 @@ import android.os.Build;
 import android.os.Handler;
 import android.os.HandlerThread;
 import android.os.IBinder;
-import android.os.SystemClock;
 import android.os.Looper;
 import android.os.Message;
 import android.os.PowerManager;
@@ -866,9 +865,7 @@ public class MusicService extends Service implements SharedPreferences.OnSharedP
             // favorite writes made mid-session - a song favorited while playing gets
             // reverted by the next tick. Do not report (nor mark played) for an item
             // whose favorite state was just toggled; see MusicUtil.toggleFavorite.
-            if (current.id != null
-                    && current.id.equals(sSuppressServerReportsForItemId)
-                    && SystemClock.elapsedRealtime() < sSuppressServerReportsUntilMs) {
+            if (current.id != null && current.id.equals(sSuppressServerReportsForItemId)) {
                 return;
             }
 

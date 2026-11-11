@@ -4,7 +4,6 @@ import android.content.Context;
 import android.content.Intent;
 import android.os.Handler;
 import android.os.Looper;
-import android.os.SystemClock;
 import android.text.TextUtils;
 import android.util.Log;
 import android.widget.Toast;
@@ -243,11 +242,11 @@ public class MusicUtil {
         song.favorite = desired;
 
         // While an item is the playing one, every server playback report rewrites its user
-        // data row from a session snapshot that predates this toggle, reverting it. Go
-        // silent on that item for long enough that the server's stale session dies; the
-        // next report then rebuilds it from fresh data (MusicService enforces the window).
+        // data row from the session's item instance, which predates this toggle and never
+        // refreshes while the session lives. Go silent on that item until a different one
+        // becomes current (MusicService enforces this); a later fresh playback rebuilds a
+        // session from current database data, so reports become harmless again.
         MusicService.sSuppressServerReportsForItemId = song.id;
-        MusicService.sSuppressServerReportsUntilMs = SystemClock.elapsedRealtime() + 60_000L;
 
         String user = App.getApiClient().getCurrentUserId();
         if (TextUtils.isEmpty(user)) {
@@ -285,13 +284,9 @@ public class MusicUtil {
                                         });
                             }
                         };
-                        Handler handler = new Handler(Looper.getMainLooper());
                         // A report already in flight when the suppression armed can still
                         // land after this write and re-persist the stale snapshot.
-                        handler.postDelayed(reassert, 3000);
-                        // One more just after the suppression window, when the first fresh
-                        // report about this item may re-create the server session.
-                        handler.postDelayed(reassert, 75_000);
+                        new Handler(Looper.getMainLooper()).postDelayed(reassert, 3000);
                     }
                 }
 
