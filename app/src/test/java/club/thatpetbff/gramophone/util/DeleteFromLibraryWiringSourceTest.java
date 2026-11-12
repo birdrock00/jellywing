@@ -326,6 +326,22 @@ public class DeleteFromLibraryWiringSourceTest {
                 beforeRequest.contains("handleOutcome("));
         assertFalse("the request path may not claim success up front (R4)",
                 beforeRequest.contains("DeleteOutcome.SUCCESS"));
+        // F7: pinning the dispatch names alone was not enough — a success TOAST or a queue edit
+        // placed before DeleteItem() satisfied every assertion above while still claiming the
+        // delete before the server answered. The rule is a property of the region, so the region
+        // forbids every effect that belongs to the SUCCESS outcome.
+        for (String prematureSuccessEffect : new String[]{
+                "delete_from_library_success",     // the success claim itself, by string or R.id
+                "removeFromQueueAndAdvance(",      // queue advanced before anything was deleted
+                "purgeCacheEntry(",                // cached bytes dropped for a live library item
+                "FavoritesStore.notifyChanged(",   // UI told the library changed
+                "clearSuppressionIfOurs("}) {      // R10 guard cleared for a live item
+            assertFalse("no success-side effect may run before the request is issued "
+                            + "(R3/R4: the success claim, the queue edit, the cache purge, the "
+                            + "Favorites refresh and the guard clear all belong to the server's "
+                            + "answer); found: " + prematureSuccessEffect,
+                    beforeRequest.contains(prematureSuccessEffect));
+        }
         int handler = util.indexOf("static void handleOutcome");
         int switchStart = util.indexOf("switch (outcome)", handler);
         assertTrue("outcome handler must exist", handler >= 0 && switchStart > handler);
