@@ -231,6 +231,24 @@ public class DeleteFromLibraryWiringSourceTest {
                 util.substring(gone, goneEnd).contains("clearSuppressionIfOurs"));
     }
 
+    /**
+     * R11 + plan note 5: the cache purge runs on the success outcome only — the 404
+     * quiet-success leaves cached bytes alone (the file may still exist on storage).
+     */
+    @Test
+    public void testCachePurgeIsSuccessOutcomeOnly() throws Exception {
+        String util = read("src/main/java/club/thatpetbff/gramophone/util/LibraryDeleteUtil.java");
+        int success = util.indexOf("case SUCCESS:");
+        String successBlock = util.substring(success, util.indexOf("break;", success));
+        assertTrue("success purges the local cache row and files (R11)",
+                successBlock.contains("purgeCacheEntry("));
+
+        int gone = util.indexOf("case ALREADY_GONE:");
+        String goneBlock = util.substring(gone, util.indexOf("break;", gone));
+        assertFalse("404 must not purge the cache (plan note 5)",
+                goneBlock.contains("purgeCacheEntry("));
+    }
+
     private static long countCodeLinesWith(String source, String needle) {
         return java.util.Arrays.stream(source.split("\n"))
                 .map(String::trim)

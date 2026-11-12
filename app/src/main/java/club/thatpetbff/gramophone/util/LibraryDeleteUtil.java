@@ -3,6 +3,7 @@ package club.thatpetbff.gramophone.util;
 import android.content.Context;
 import android.widget.Toast;
 
+import java.io.File;
 import java.util.List;
 
 import club.thatpetbff.gramophone.App;
@@ -92,6 +93,36 @@ public final class LibraryDeleteUtil {
         return DeleteOutcome.SERVER_FAILURE;
     }
 
+    /**
+     * R11 (success outcome only): drop the Room cache row and the cached bytes for this
+     * id — the direct cache-location file, the in-flight download file, and the
+     * downloaded audio file named from the song row (MusicUtil.getFileUri). An un-cached
+     * delete is idempotent: nothing purged, nothing claimed, no crash on absent files.
+     */
+    public static void purgeCacheEntry(String itemId) {
+        try {
+            Song song = findSong(itemId);
+            App.getDatabase().cacheDao().deleteFromCache(itemId);
+            String cacheRoot = PreferenceUtil.getInstance(App.getInstance()).getLocationCache();
+            new File(cacheRoot, itemId).delete();
+            new File(cacheRoot, "download/" + itemId).delete();
+            if (song != null) {
+                new File(MusicUtil.getFileUri(song)).delete();
+            }
+        } catch (Exception ignored) {
+            // A failed purge must not turn a server-side success into a false failure.
+        }
+    }
+
+    private static Song findSong(String id) {
+        for (Song song : App.getDatabase().songDao().getSongs()) {
+            if (id.equals(song.id)) {
+                return song;
+            }
+        }
+        return null;
+    }
+
     private static final java.util.Set<String> inFlight =
             java.util.Collections.synchronizedSet(new java.util.HashSet<>());
 
@@ -124,6 +155,7 @@ public final class LibraryDeleteUtil {
                 toast(R.string.delete_from_library_success);
                 removeFromQueueAndAdvance(itemId);
                 clearSuppressionIfOurs(itemId);
+                purgeCacheEntry(itemId);
                 FavoritesStore.notifyChanged();
                 break;
             case ALREADY_GONE:

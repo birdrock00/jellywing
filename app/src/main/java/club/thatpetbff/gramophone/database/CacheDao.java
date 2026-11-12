@@ -19,4 +19,7 @@ public interface CacheDao {
 
     @Query("SELECT cache FROM cache WHERE id = :id")
     boolean isCached(String id);
+
+    @Query("DELETE FROM cache WHERE id = :id")
+    void deleteFromCache(String id);
 }
