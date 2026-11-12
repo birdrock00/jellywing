@@ -52,6 +52,14 @@
     <string name="classify_language_failed">Failed to classify song</string>
     <string name="action_sleep_timer">Sleep timer</string>
     <string name="action_delete_from_library">Delete from library</string>
+    <string name="delete_from_library_title">Delete from library?</string>
+    <string name="delete_from_library_body">This permanently deletes the file from the server and removes it from every playlist that holds it. This cannot be undone from the app.</string>
+    <string name="delete_from_library_confirm">Delete</string>
+    <string name="delete_from_library_cancel">Cancel</string>
+    <string name="delete_from_library_success">Removed from library</string>
+    <string name="delete_from_library_denied">Server refused: media deletion is not enabled for this user — ask a server administrator</string>
+    <string name="delete_from_library_gone">This song is no longer on the server</string>
+    <string name="delete_from_library_failed">Could not delete from the server — server or network failure</string>
     <string name="action_set">Set</string>
     <string name="action_new_playlist">New playlist</string>
 
