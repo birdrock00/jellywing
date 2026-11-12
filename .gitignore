@@ -54,3 +54,6 @@ AGENTS.override.md
 
 # Local scratch holding device/host identifiers (PII) — never commit; ignore, do not delete (E00-F01 R11)
 jellywing-delete.md
+
+# Review/scratch working directories (may hold unredacted agent working notes)
+scratchpad/
