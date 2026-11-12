@@ -1,0 +1,18 @@
+# Local-only telemetry log (see .harness/agents/orchestrator.md "## Telemetry").
+# Jira mirror PAT file (mirror.board.pat_file default) — never commit a PAT.
+# Per-run agent output under progress/ is ephemeral scratch; the inbox briefs and
+# the loose files directly under progress/ stay tracked (order matters — the
+# re-inclusions must follow progress/*/).
+telemetry.jsonl
+workers.json
+jira.pat
+state/tasks.json.lock
+.pr-loop/
+.opencode-parallel
+__pycache__/
+*.pyc
+progress/*/
+!progress/.gitkeep
+!progress/README.md
+!progress/inbox/
+!progress/inbox/**

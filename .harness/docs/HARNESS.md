@@ -1,0 +1,122 @@
+# What a harness is (and why this one is built this way)
+
+A **harness** is the environment you build *around* a model: the context, tools,
+memory, and verification that help a model work within a repeatable process.
+The model is the engine (or the horse); the harness is the chassis (or the reins).
+
+**The core bet:** models and runtimes change, while repository-owned intent and
+evidence can remain portable. Files you own let this project support Claude Code
+(primary), Codex (second), OpenCode (third), Antigravity, and pi without adopting one vendor wrapper.
+Read the deeper [rationale and deletion ledger](RATIONALE.md) for the limits of
+that claim, the distinction between current-model compensation and durable process
+value, and the evidence required before removing a mechanism.
+
+## The four components
+
+1. **Context** — what the model is told. Kept minimal and curated per agent.
+2. **Tools** — what it can do. Minimal beats inflated (Bash + filesystem first).
+3. **Memory** — what it remembers across sessions. Externalized to files.
+4. **Verification** — proof the work is actually correct. `init.sh` + tests + Reviewer.
+
+## The five principles this harness enforces
+
+1. **The harness lives in the repo.** It's `AGENTS.md` + `agents/` + `specs/` +
+   `progress/` + `init.sh`. No external app, no magic — just files that reference
+   each other.
+
+2. **Minimal tooling.** Every tool adds context and another failure surface. This
+   project starts with Bash and the filesystem, then adds a tool only when a task
+   and its verification show a need.
+
+3. **Externalize memory.** Keep resumable state in `state/`, `specs/`, and
+   `progress/`; read only what is needed and resume from files when a session or
+   context changes.
+
+4. **Separate roles.** Inception (intake), Orchestrator, Architect, Builder,
+   Reviewer, and Scout have bounded responsibilities so planning, implementation,
+   and independent challenge leave distinct evidence.
+
+5. **Verify autonomously.** Never trust "done." The harness proves it: `init.sh`,
+   tests, type/lint checks, and behavioral checks (e.g. Playwright clicking the live
+   app). The Reviewer can even improve the harness so a failure can't recur — a
+   correction loop.
+
+## The commands this harness ships
+
+For selected front ends and enabled gates, canonical command bodies are emitted
+into `.claude/commands/` and `.opencode/command/`. Codex, OpenCode, and Antigravity all
+read the shared repository-local skills under `.agents/skills/<name>/SKILL.md` (ADR-0003),
+each with an explicit-only policy companion. Claude/OpenCode/Antigravity use the `/sdd-*` names
+in the table; Codex invocation uses `$sdd-*`, for example `$sdd-new Add search` and
+`$sdd-next`. The shared adapter names both invocations; accompanying text supplies
+`$ARGUMENTS`. In Codex, `/skills` provides discovery. In Antigravity, `/sdd-*` slash commands
+are discovered natively and roles are leased dynamically via `define_subagent` / `invoke_subagent`.
+pi invokes the same commands as `/sdd-*` through `.pi/prompts/` templates (thin pointers to
+the shared units) or as `/skill:sdd-*`; pi loads both only after the project is trusted
+(`/trust`, or `-a` on a headless run; then `/reload` or restart pi in an open session), and pi role isolation is the generated `.pi/agents/<role>.md` files (for `pi-subagents`) with `tools/pi-dispatch.sh` as the fallback.
+See [WORKFLOW.md](WORKFLOW.md).
+
+| Command | Role it runs | Gate |
+|---|---|---|
+| `/sdd-new "<idea>"` | Inception — triage an idea into a `pending` entry + intent brief | always |
+| `/sdd-plan "<idea>"` | Planner — whole-project vision/architecture + ADRs + draft epics | always |
+| `/sdd-drill <epic-id>` | Driller — decompose one draft epic into features | always |
+| `/sdd-next` | Orchestrator — route and delegate the next actionable task | always |
+| `/sdd-fix "<desc>"` | Fixer — the lightweight `sdd:false` maintenance lane | always |
+| `/sdd-fix-parallel` | Fixer — bounded parallel batch of ready E99 fixes | OpenCode requires concurrency capability/override; runtime requires native concurrency and `in-session` Builder |
+| `/sdd-report` | Session owner — report a verified harness defect upstream | always (inert if feedback.enabled is false) |
+| `/sdd-pr-loop <pr>` | the Codex review cycle on one open PR (fresh `pr-fixer` role) | `pr_loop.enabled` (opt-in) |
+
+For a **new product**, the sequence starts at `/sdd-plan` (whole-project inception: vision,
+architecture, ADRs, draft epics), then `/sdd-drill <epic-id>` and `/sdd-next`; `/sdd-new`
+is the intake for **later work** in an existing project. See
+[installation](INSTALL.md#starting-from-nothing-new-product).
+
+`/sdd-pr-loop` follows the **opt-in PR-policy gate**: it is stamped
+only while `pr_loop.enabled` reads exactly `true`, and a fresh install seeds `false`.
+An absent block, an absent key, an empty or malformed value all mean off. The reason is
+that the loop works only on a repository with the **Codex GitHub App** installed plus an
+**authed `gh`** and **`jq`** on `PATH` — defaulting it on would grow a command that can
+only fail its own preflight. Those are loop-runtime dependencies alone — `init.sh` never
+checks for them, so a target without either still passes the environment gate. Turning
+the key on and re-running the installer emits PR-loop glue for selected front-ends
+and their native fixer roles, including `.codex/agents/pr-fixer.toml`.
+Turning it back off reclaims harness-owned gated glue. OpenCode separately gates
+`/sdd-fix-parallel`; see [installation](INSTALL.md).
+
+Selecting Codex registers seven standard project-local roles in `.codex/agents/`,
+plus an eighth `pr-fixer` only while the PR-loop gate is enabled. Each delegated
+role receives a fresh context and file paths; the host reports missing delegation
+capability rather than claiming that an isolated role ran.
+Inherited or unpinned roles remain registered without a `model` key; a concrete Codex
+pin adds `model` only where it resolves. Skill units are explicit-only through
+`agents/openai.yaml`, which is written wherever the unit is; their host-neutral adapter
+names the Codex `$sdd-*` and OpenCode `/sdd-*` invocations and maps text accompanying an
+explicit skill mention to the canonical `$ARGUMENTS` term. The `sdd-fix-parallel` unit
+carries an OpenCode capability precondition (read `.harness/.opencode-parallel`; stop
+unless it reads `supported`) that is a no-op on Codex. In an installed target the
+remediation is `/sdd-test-concurrency` then `--with-opencode-parallel=true`; in the
+harness source checkout, where no OpenCode command surface is installed, it is to write
+`supported` to the marker directly after confirming native concurrent sub-agents, or to
+run the batch sequentially instead. Last-written stamps protect skill
+units and role files from selected-install overwrite and unsafe reclamation; the units
+are claimed by Antigravity, Codex, OpenCode, and pi and reclaimed only when the last claimant is
+deselected. Current installs never create global Codex prompts. Ungated legacy prompts
+remain because their cross-target ownership is unknowable; only ledger-proven,
+byte-pristine `sdd-pr-loop` is reclaimed.
+
+Source `--self` regeneration defaults to Claude + Codex and preserves their
+separate per-role model choices. With inherited Codex models, combined source
+escalation is UNARMED; explicit Claude-only generation retains its prior verdict.
+See [self mode](INSTALL.md#self-mode----self-harness-developers-only).
+
+Gemini CLI is a retired integration. Its historical records remain;
+upgrades remove only proven pristine old glue and preserve customized files with
+warnings. See [migration](INSTALL.md#retiring-gemini).
+
+## Where the ideas come from
+
+The [rationale and deletion ledger](RATIONALE.md) attributes the primary source
+reports that motivated specific design hypotheses and states their limits. See
+[`specs/product.md`](../specs/product.md) for how to adapt the harness to a specific
+project.

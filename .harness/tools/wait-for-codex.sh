@@ -1,0 +1,700 @@
+#!/bin/sh
+# wait-for-codex.sh — block until a Codex review lands on the PR's head commit.
+#
+# WHY THIS EXISTS
+#   /sdd-pr-loop is a runbook the model follows by hand inside an interactive session.
+#   On its own, the model fetches the review state once, sees nothing yet, and ends
+#   its turn — so a Codex review that lands minutes later goes unnoticed until a
+#   human nudges "review again". This script is the missing wake mechanism: launch
+#   it in the background (Claude Code's Bash tool `run_in_background: true`, or
+#   `sh … &` elsewhere) and it polls every HARNESS_POLL_INTERVAL seconds. The instant
+#   Codex resolves (or the ceiling is hit) it exits, and the harness re-invokes the
+#   session to classify and fix. True minute-by-minute monitoring, no manual nudge,
+#   survives turns.
+#
+# Usage (five modes, one evaluation routine):
+#   wait-for-codex.sh <pr-number> <trigger-comment-id> <round-dir>   # wait (poll GitHub)
+#   wait-for-codex.sh preflight <pr-number>                          # static checks only
+#   wait-for-codex.sh evaluate  <round-dir>                          # offline re-evaluation
+#   wait-for-codex.sh classify  <round-dir> [blocking-severities]    # offline classification
+#   wait-for-codex.sh merge-verify <round-dir> <pr-number> <pre|post>  # merge-step receipts
+#
+#   pr-number:          the open PR
+#   trigger-comment-id: id of the `@codex review` issue comment (for the 👍 case)
+#   round-dir:          <HARNESS_DIR>/.pr-loop/<pr>/round-<n>/ — where the 4 source
+#                       files + trigger-ts.txt land
+#
+# Env knobs (all optional). HARNESS_* names ONLY — no other vendor prefix is read:
+#   HARNESS_POLL_INTERVAL   seconds between polls, MUST be > 0        (default 60)
+#   HARNESS_POLL_CEILING    max seconds to wait before timeout        (default 900 = 15 min)
+#   HARNESS_FIRST_RESPONSE  seconds to wait for THIS ROUND's Codex    (default 180; 0 = off)
+#                           activity (see wfc_bot_seen)
+#
+# Exit codes (the caller branches on these):
+#   0  → a Codex review with FRESH findings landed on head (created_at >= trigger).
+#   1  → `evaluate` only: no resolution yet (pending). Never returned by wait mode.
+#   2  → timeout: ceiling hit with no resolution. Caller aborts round w/ needs-human.
+#   3  → clean review, zero findings (summary banner on head as a review OR as an
+#        issue comment, OR 👍 reaction on the trigger comment).
+#   4  → usage / precondition error (includes an unresolvable trigger timestamp and a
+#        non-positive HARNESS_POLL_INTERVAL).
+#   5  → `wait` mode ONLY: no Codex activity within HARNESS_FIRST_RESPONSE — the Codex
+#        GitHub App is most likely not installed/authorized on this repo. NEVER returned
+#        by `preflight` (E99-F153: it used to be, conflated with the unrelated codes
+#        below — the same number with an opposite remedy sent a real project chasing an
+#        App-installation problem it did not have, when the actual cause was "wrong
+#        directory", code 9 now).
+#   6  → `classify` only: FAIL-CLOSED — the head oid or the findings stream could not be
+#        read, so no blocking.json exists and the caller must take the needs-human path,
+#        never the merge path.
+#   7  → `merge-verify` only: the receipt FAILED — pre: the PR's current head is not the
+#        head the round reviewed (a push after the clean review would inherit its
+#        verdict, E99-F144); post: the PR is not actually MERGED (`gh pr merge` exiting 0
+#        can mean enqueued/auto-merge-armed, E99-F141). Both fail closed: an unreadable
+#        state is a failed receipt, never a pass.
+#  11  → `merge-verify post` only (#256): the PR is still OPEN at the ceiling — `gh pr merge`
+#        exited 0 but only ENQUEUED it (merge queue / repo-level auto-merge), so the merge
+#        request is still LIVE and may land later. Distinct from 7 (CLOSED, or state
+#        unreadable) because the caller must reconcile and CANCEL it before handing off as
+#        needs-human; a live request left behind merges with nothing recording it. (Not 8:
+#        8-10 are the `preflight` buckets below, and a number must mean one thing.)
+#   8  → `preflight` only, AUTH/TOOLING bucket: `gh` missing, `gh` unauthenticated, or
+#        `jq` missing — nothing here can talk to GitHub at all. Remedy: install/authenticate
+#        the missing tool, or accept manual review and set pr_loop.enabled: false.
+#   9  → `preflight` only, ENVIRONMENT bucket: the repo slug is unresolvable. Remedy: you
+#        are very likely in the wrong directory (e.g. an umbrella root instead of the
+#        child repo) — re-run from the repo `gh` can resolve, or `gh repo set-default`.
+#  10  → `preflight` only, USAGE bucket: the PR number does not resolve, or resolves to a
+#        PR that is not OPEN. Remedy: pass an existing, open PR number.
+#
+# Always (re)writes pr.json, review-comments.json, issue-comments.json, reactions.json
+# into round-dir on every poll, so the caller reads the same sources the command body
+# describes. POSIX sh, no bashisms (the harness's zero-dependency ethos); the ONLY
+# runtime dependencies are `gh` (authed) and `jq`, both asserted by `preflight` (`date +%s`
+# is used opportunistically for the wall-clock deadlines, with a fallback when absent).
+
+set -eu
+
+# The Codex bot logins. `gh pr view` (GraphQL) reports `chatgpt-codex-connector`; the REST
+# API reports `chatgpt-codex-connector[bot]`. Both spellings are accepted, as EXACT literals
+# and nothing else. A prefix test (the shape this shipped with) is a spoofing hole: any
+# GitHub account whose login merely BEGINS with the bot name — `chatgpt-codex-connector-evil`
+# — could add a 👍 to the trigger comment or post a "Reviewed commit: <head>" banner, driving
+# `evaluate` to exit 3 ("clean, zero findings"), which the caller does not classify and
+# auto-merges. The two literals below cover the GraphQL/REST spelling split completely, so
+# there is nothing left for a prefix to buy.
+WFC_BOT="chatgpt-codex-connector"
+WFC_BOT_REST="chatgpt-codex-connector[bot]"
+
+# Preflight exit-code buckets (E99-F153). One code per REMEDY DIRECTION, never one code
+# per check — a caller's `case "$rc"` can act on the bucket without parsing stderr prose.
+# `5` is deliberately excluded from all three: it stays reserved, exclusively, for the
+# `wait` mode's own first-response probe (see the exit-code table up top).
+WFC_EXIT_PREFLIGHT_AUTH=8      # gh missing/unauthenticated, or jq missing
+WFC_EXIT_PREFLIGHT_ENV=9       # repo slug unresolvable — wrong directory
+WFC_EXIT_PREFLIGHT_USAGE=10    # PR not found, or found but not OPEN
+
+wfc_usage() {
+  echo "usage: $0 <pr-number> <trigger-comment-id> <round-dir>" >&2
+  echo "       $0 preflight <pr-number>" >&2
+  echo "       $0 evaluate <round-dir>" >&2
+  echo "       $0 classify <round-dir> [blocking-severities]" >&2
+  echo "       $0 merge-verify <round-dir> <pr-number> <pre|post>" >&2
+}
+
+# Severity extraction, shared by every classify stream. FIRST MATCH WINS BY POSITION in
+# the body — jq's `match(…; "g")` returns matches in string order, so `.[0]` is the
+# earliest — and every tag is WORD-BOUNDARY anchored, so a "nit" inside "monitor" or a
+# "P1" inside "P12" can never tag a finding. Default is P2 when no tag matches (the
+# conservative direction: an untagged Codex finding blocks under a raised severity set
+# rather than slipping past the gate). This exists precisely because every hand-rolled
+# reimplementation of this rule got one of those two properties wrong (E99-F149 /
+# lessons.md): the rule now lives HERE and nowhere else.
+WFC_SEV_DEF='def wfc_sev:
+  ( (.body // "") | [match("(?i)\\b(p0|p1|p2|nit)\\b"; "g")] ) as $m
+  | if ($m | length) > 0
+    then ($m[0].string | ascii_upcase | if . == "NIT" then "nit" else . end)
+    else "P2" end;'
+
+# wfc_int <value> <default> — echo <value> when it is a non-negative integer, else <default>.
+wfc_int() {
+  case "$1" in
+    ''|*[!0-9]*) printf '%s\n' "$2" ;;
+    *)           printf '%s\n' "$1" ;;
+  esac
+}
+
+# wfc_elapsed <start-epoch> <fallback> — seconds since <start-epoch> by WALL CLOCK, or
+# <fallback> when the clock is unusable (absent/odd `date`, or a backwards step). Advancing
+# the deadlines by the poll interval alone UNDERSTATES real time — every poll makes several
+# `gh` calls — so both the ceiling and the first-response window silently stretch past their
+# configured budgets. `date +%s` is deliberately NOT a hard dependency: without it the caller
+# falls back to the accumulator, which is bounded because the interval is validated positive.
+wfc_elapsed() {
+  case "$1" in
+    ''|*[!0-9]*) printf '%s\n' "$2"; return 0 ;;
+  esac
+  _wfce_now="$(date +%s 2>/dev/null || true)"
+  case "$_wfce_now" in
+    ''|*[!0-9]*) printf '%s\n' "$2"; return 0 ;;
+  esac
+  if [ "$_wfce_now" -lt "$1" ]; then printf '%s\n' "$2"; return 0; fi
+  printf '%s\n' "$(( _wfce_now - $1 ))"
+}
+
+# wfc_count <value> — normalize a jq `length` result to a plain integer (0 on anything else).
+wfc_count() {
+  case "$1" in
+    ''|*[!0-9]*) printf '0\n' ;;
+    *)           printf '%s\n' "$1" ;;
+  esac
+}
+
+# ── the ONE evaluation routine ────────────────────────────────────────────────
+# wfc_evaluate <round-dir> <trigger-ts> — echo findings | clean | pending.
+# PURE and OFFLINE: it reads only the already-written round files and invokes no `gh`
+# and no network, which is what lets `evaluate` mode and the test fixtures apply the
+# exact same freshness rules the live wait loop applies (R29).
+wfc_evaluate() {
+  _ev_dir="$1"; _ev_since="$2"
+
+  [ -f "$_ev_dir/pr.json" ] || { echo pending; return 0; }
+  _ev_head="$(jq -r '.headRefOid // ""' "$_ev_dir/pr.json" 2>/dev/null || echo '')"
+  [ -n "$_ev_head" ] || { echo pending; return 0; }
+  _ev_short="$(printf '%s' "$_ev_head" | cut -c1-7)"
+
+  # Condition 1: FRESH inline findings filed by the Codex bot against the head commit.
+  # The created_at >= trigger filter excludes stale threads that GitHub re-anchored to
+  # head (their commit_id matches but they predate this round's trigger). No-op when
+  # the anchor is empty. ISO-8601 timestamps compare correctly as lexical strings.
+  # review-comments.json is a REQUIRED source, not an optional one: it is the only
+  # stream that carries inline findings. Absent (a failed fetch never staged it) or
+  # unreadable means "we do not know", NOT "zero findings" — falling through to the
+  # clean-banner conditions there would report a PR with fresh blocking findings as
+  # clean (exit 3), which the caller skips classification on and auto-merges. Stay
+  # pending so the poll retries.
+  [ -f "$_ev_dir/review-comments.json" ] || { echo pending; return 0; }
+  _ev_findings="$(jq --arg bot "$WFC_BOT" --arg botr "$WFC_BOT_REST" \
+                     --arg head "$_ev_head" --arg since "$_ev_since" '
+    [ .[]? | select((.user.login // "") == $bot or (.user.login // "") == $botr)
+           | select((.commit_id // "") == $head)
+           | select($since == "" or ((.created_at // "") >= $since)) ] | length' \
+    "$_ev_dir/review-comments.json" 2>/dev/null || printf 'unreadable')"
+  case "$_ev_findings" in
+    ''|*[!0-9]*) echo pending; return 0 ;;
+  esac
+  if [ "$_ev_findings" -gt 0 ]; then echo findings; return 0; fi
+
+  # Condition 2: FRESH review summary banner naming the head commit, with zero findings.
+  # submittedAt >= trigger excludes a banner from a PRIOR review of the same head (e.g. a
+  # re-request without a new commit), which would otherwise flag the new round clean early.
+  _ev_banner="$(jq --arg bot "$WFC_BOT" --arg botr "$WFC_BOT_REST" \
+                   --arg sh "$_ev_short" --arg since "$_ev_since" '
+    [ .reviews[]? | select((.author.login // "") == $bot or (.author.login // "") == $botr)
+                  | select((.body // "") | contains("Reviewed commit") and contains($sh))
+                  | select($since == "" or ((.submittedAt // "") >= $since)) ]
+    | length' "$_ev_dir/pr.json" 2>/dev/null || echo 0)"
+  if [ "$(wfc_count "$_ev_banner")" -gt 0 ]; then echo clean; return 0; fi
+
+  # Condition 2b: the zero-findings banner delivered as an ISSUE comment, not a review.
+  # Codex's clean result ("Didn't find any major issues. Breezy!" + "Reviewed commit:
+  # <head>") posts to the issue-comment stream, which conditions 1/2 never scan — so a
+  # genuinely clean PR would stall until the ceiling. Scan the PAGINATED issue-comments
+  # file (REST ⇒ .user.login) so a banner past the first 100 comments is still caught.
+  # Same created_at >= trigger freshness guard as condition 1 — a stale banner from a
+  # prior review of this head must not flag the new round clean before Codex responds.
+  if [ -f "$_ev_dir/issue-comments.json" ]; then
+    _ev_banner_issue="$(jq --arg bot "$WFC_BOT" --arg botr "$WFC_BOT_REST" \
+                           --arg sh "$_ev_short" --arg since "$_ev_since" '
+      [ .[]? | select((.user.login // "") == $bot or (.user.login // "") == $botr)
+             | select((.body // "") | contains("Reviewed commit") and contains($sh))
+             | select($since == "" or ((.created_at // "") >= $since)) ]
+      | length' "$_ev_dir/issue-comments.json" 2>/dev/null || echo 0)"
+    if [ "$(wfc_count "$_ev_banner_issue")" -gt 0 ]; then echo clean; return 0; fi
+  fi
+
+  # Condition 3: Codex bot reacted 👍 (+1) on the triggering comment.
+  if [ -f "$_ev_dir/reactions.json" ]; then
+    _ev_thumbs="$(jq --arg bot "$WFC_BOT" --arg botr "$WFC_BOT_REST" '
+      [ .[]? | select((.content // "") == "+1")
+             | select((.user.login // "") == $bot or (.user.login // "") == $botr) ] | length' \
+      "$_ev_dir/reactions.json" 2>/dev/null || echo 0)"
+    if [ "$(wfc_count "$_ev_thumbs")" -gt 0 ]; then echo clean; return 0; fi
+  fi
+
+  echo pending
+}
+
+# wfc_bot_seen <round-dir> <trigger-ts> — exit 0 when Codex activity for THIS ROUND is
+# visible: any reaction on the trigger comment (Codex adds 👀 on pickup), any bot issue
+# comment or bot review created at/after the trigger. This is deliberately broader than
+# the resolution conditions — it answers "did the app respond at all", not "did it
+# finish" (R32).
+#
+# The comment/review counts MUST be scoped by <trigger-ts>, exactly like the resolution
+# conditions above. Unscoped, every round after the first sees the PRIOR rounds' Codex
+# comments and reviews still sitting on the PR, disarms the probe on the very first poll,
+# and a repo where the App can no longer answer waits out the full ceiling and reports a
+# plain timeout (exit 2) instead of the missing-App diagnostic (exit 5). ISO-8601
+# timestamps compare correctly as lexical strings; an empty anchor (the no-trigger-id
+# compat path) makes the filter a no-op, preserving the pre-scoping behaviour there.
+#
+# reactions.json needs NO timestamp filter: it is fetched per poll from THIS round's
+# trigger comment id (`issues/comments/$TRIGGER_COMMENT_ID/reactions`), so it is already
+# round-scoped by construction — a reaction there can only have been left in response to
+# the current `@codex review`.
+wfc_bot_seen() {
+  _bs_dir="$1"; _bs_since="${2:-}"
+  if [ -f "$_bs_dir/reactions.json" ]; then
+    _bs_n="$(jq '[ .[]? ] | length' "$_bs_dir/reactions.json" 2>/dev/null || echo 0)"
+    [ "$(wfc_count "$_bs_n")" -gt 0 ] && return 0
+  fi
+  if [ -f "$_bs_dir/issue-comments.json" ]; then
+    _bs_n="$(jq --arg bot "$WFC_BOT" --arg botr "$WFC_BOT_REST" --arg since "$_bs_since" \
+      '[ .[]? | select((.user.login // "") == $bot or (.user.login // "") == $botr)
+              | select($since == "" or ((.created_at // "") >= $since)) ] | length' \
+      "$_bs_dir/issue-comments.json" 2>/dev/null || echo 0)"
+    [ "$(wfc_count "$_bs_n")" -gt 0 ] && return 0
+  fi
+  if [ -f "$_bs_dir/pr.json" ]; then
+    _bs_n="$(jq --arg bot "$WFC_BOT" --arg botr "$WFC_BOT_REST" --arg since "$_bs_since" \
+      '[ .reviews[]? | select((.author.login // "") == $bot or (.author.login // "") == $botr)
+                     | select($since == "" or ((.submittedAt // "") >= $since)) ] | length' \
+      "$_bs_dir/pr.json" 2>/dev/null || echo 0)"
+    [ "$(wfc_count "$_bs_n")" -gt 0 ] && return 0
+  fi
+  return 1
+}
+
+# ── preflight mode ────────────────────────────────────────────────────────────
+# Static, read-only checks run BEFORE the command body posts anything to GitHub, so a
+# repo without the Codex GitHub App (or without an authed gh) fails in a second with a
+# named remedy instead of polling to the ceiling. Posts NOTHING (R30/R31).
+#
+# Returns one of THREE distinct codes, never a shared one (E99-F153): the six checks
+# below split into three remedy buckets — AUTH/TOOLING (fix your local setup),
+# ENVIRONMENT (fix which directory you're running from), USAGE (fix your PR argument).
+# Before this split every one of them returned the SAME `5`, which is also the wait
+# mode's "Codex GitHub App is most likely not installed" diagnostic — so an operator
+# whose real problem was ENVIRONMENT (wrong directory, an umbrella root instead of the
+# child repo) read the identical code the docs describe for the App-missing case, and
+# chased an App-installation problem they didn't have while the item sat on a board for
+# five days. Splitting the codes makes the two undiagnosable-by-number-alone again.
+wfc_preflight() {
+  _pf_pr="$1"
+  if ! command -v gh >/dev/null 2>&1; then
+    echo "wait-for-codex preflight: \`gh\` is not on PATH — install the GitHub CLI (https://cli.github.com) or set pr_loop.enabled: false" >&2
+    return "$WFC_EXIT_PREFLIGHT_AUTH"
+  fi
+  if ! gh auth status >/dev/null 2>&1; then
+    echo "wait-for-codex preflight: \`gh\` is not authenticated — run \`gh auth login\`, or accept manual review and set pr_loop.enabled: false" >&2
+    return "$WFC_EXIT_PREFLIGHT_AUTH"
+  fi
+  if ! command -v jq >/dev/null 2>&1; then
+    echo "wait-for-codex preflight: \`jq\` is not on PATH — install jq (https://jqlang.github.io/jq/) or set pr_loop.enabled: false" >&2
+    return "$WFC_EXIT_PREFLIGHT_AUTH"
+  fi
+  if ! _pf_slug="$(gh repo view --json owner,name --jq '"\(.owner.login) \(.name)"' 2>/dev/null)" \
+     || [ -z "$_pf_slug" ]; then
+    echo "wait-for-codex preflight: repo slug unresolvable — you are very likely in the wrong directory (e.g. an umbrella root instead of the child repo); run from a git repo with a GitHub remote (\`gh repo set-default\`)" >&2
+    return "$WFC_EXIT_PREFLIGHT_ENV"
+  fi
+  if ! _pf_state="$(gh pr view "$_pf_pr" --json state --jq '.state' 2>/dev/null)" \
+     || [ -z "$_pf_state" ]; then
+    echo "wait-for-codex preflight: PR #$_pf_pr not found in $_pf_slug — pass an existing PR number" >&2
+    return "$WFC_EXIT_PREFLIGHT_USAGE"
+  fi
+  if [ "$_pf_state" != "OPEN" ]; then
+    echo "wait-for-codex preflight: PR #$_pf_pr is $_pf_state, not OPEN — reopen it or pass an open PR" >&2
+    return "$WFC_EXIT_PREFLIGHT_USAGE"
+  fi
+  echo "wait-for-codex preflight: ok (gh authed, jq present, $_pf_slug PR #$_pf_pr open)" >&2
+  return 0
+}
+
+# ── mode dispatch ─────────────────────────────────────────────────────────────
+case "${1:-}" in
+  preflight)
+    if [ -z "${2:-}" ]; then wfc_usage; exit 4; fi
+    # Propagate wfc_preflight's OWN return code (8/9/10 per bucket, or 0) — never a
+    # hardcoded value. This is the E99-F153 fix: the code now carries which remedy
+    # bucket fired, instead of every bucket being flattened to the same number.
+    # NOTE: `if wfc_preflight "$2"; then exit 0; fi; exit $?` looks equivalent but is
+    # NOT — POSIX defines a bare `if cond; then …; fi` with no `else` and a FALSE cond
+    # as exiting 0 itself (no tested list ran), which clobbers `$?` before the trailing
+    # `exit $?` ever reads it. `||` reads `$?` from the failing command directly.
+    wfc_preflight "$2" || exit $?
+    exit 0
+    ;;
+  evaluate)
+    if [ -z "${2:-}" ]; then wfc_usage; exit 4; fi
+    EV_DIR="$2"
+    if [ ! -d "$EV_DIR" ]; then
+      echo "wait-for-codex evaluate: round dir not found: $EV_DIR" >&2
+      exit 4
+    fi
+    if ! command -v jq >/dev/null 2>&1; then
+      echo "wait-for-codex evaluate: \`jq\` is not on PATH — install jq (https://jqlang.github.io/jq/)" >&2
+      exit 4
+    fi
+    # The freshness anchor is read from the round dir, never re-fetched — `evaluate`
+    # invokes no `gh` and touches no network, by construction.
+    EV_TS=""
+    if [ -f "$EV_DIR/trigger-ts.txt" ]; then EV_TS="$(cat "$EV_DIR/trigger-ts.txt")"; fi
+    case "$(wfc_evaluate "$EV_DIR" "$EV_TS")" in
+      findings) exit 0 ;;
+      clean)    exit 3 ;;
+      *)        exit 1 ;;
+    esac
+    ;;
+  classify)
+    # ── classify mode (E99-F149: classification is CODE, not per-lane prose) ──────
+    # PURE and OFFLINE like `evaluate`: reads only the round files, invokes no `gh`.
+    # Writes into <round-dir>:
+    #   fresh-comments.json  inline comments on the head commit, created at/after the
+    #                        trigger (all authors — the thread-ownership gate owns
+    #                        human threads; this file preserves the raw fresh stream)
+    #   comments.json        the CODEX-authored subset of fresh-comments.json, each with
+    #                        a `severity` field attached (P0|P1|P2|nit)
+    #   blocking.json        comments.json filtered to [blocking-severities]
+    #                        (default "P0,P1") — the MERGE GATE reads this
+    #   body-findings.json   ADVISORY: fresh Codex review bodies / issue comments that
+    #                        carry a severity tag. They have no path:line, so nothing
+    #                        can act on them — they are surfaced, never blocking. This
+    #                        is the E99-F149 fix: the freshness rule applies to EVERY
+    #                        stream, and un-actionable streams cannot block a round.
+    #   status.json          the statusCheckRollup snapshot from pr.json
+    # Exit 0 on success (blocking.json written, possibly `[]`); exit 6 FAIL-CLOSED when
+    # the head oid or the findings stream is unreadable — no blocking.json is left
+    # behind, and the caller must go to needs-human, never to merge.
+    CL_DIR="${2:-}"
+    CL_SET="${3:-P0,P1}"
+    if [ -z "$CL_DIR" ]; then wfc_usage; exit 4; fi
+    if [ ! -d "$CL_DIR" ]; then
+      echo "wait-for-codex classify: round dir not found: $CL_DIR" >&2
+      exit 4
+    fi
+    if ! command -v jq >/dev/null 2>&1; then
+      echo "wait-for-codex classify: \`jq\` is not on PATH — install jq (https://jqlang.github.io/jq/)" >&2
+      exit 4
+    fi
+    CL_TS=""
+    if [ -f "$CL_DIR/trigger-ts.txt" ]; then CL_TS="$(cat "$CL_DIR/trigger-ts.txt")"; fi
+
+    # A head oid we could not READ is not a head oid (fail closed): filtering on "" would
+    # match nothing and hand the gate an empty blocking.json — "zero findings" forged by
+    # a truncated pr.json. Same rule for the findings stream itself.
+    CL_HEAD="$(jq -r '.headRefOid // ""' "$CL_DIR/pr.json" 2>/dev/null || echo '')"
+    if [ -z "$CL_HEAD" ]; then
+      rm -f "$CL_DIR/fresh-comments.json" "$CL_DIR/comments.json" "$CL_DIR/blocking.json"
+      echo "wait-for-codex classify: could not read headRefOid from pr.json — fail closed (needs-human, not merging)" >&2
+      exit 6
+    fi
+    if [ ! -f "$CL_DIR/review-comments.json" ]; then
+      rm -f "$CL_DIR/fresh-comments.json" "$CL_DIR/comments.json" "$CL_DIR/blocking.json"
+      echo "wait-for-codex classify: review-comments.json missing — fail closed (needs-human, not merging)" >&2
+      exit 6
+    fi
+
+    # Freshness: commit_id == head AND created_at >= trigger (no-op anchor when empty —
+    # an empty anchor admits MORE findings, which errs toward review, never toward merge).
+    if ! jq --arg h "$CL_HEAD" --arg since "$CL_TS" '
+        [ .[]? | select((.commit_id // "") == $h)
+               | select($since == "" or ((.created_at // "") >= $since)) ]' \
+        "$CL_DIR/review-comments.json" > "$CL_DIR/fresh-comments.json" 2>/dev/null; then
+      rm -f "$CL_DIR/fresh-comments.json" "$CL_DIR/comments.json" "$CL_DIR/blocking.json"
+      echo "wait-for-codex classify: review-comments.json unreadable — fail closed (needs-human, not merging)" >&2
+      exit 6
+    fi
+
+    # Codex-authored findings with severities attached; then the configured blocking set.
+    jq --arg bot "$WFC_BOT" --arg botr "$WFC_BOT_REST" "$WFC_SEV_DEF"'
+      [ .[]? | select((.user.login // "") == $bot or (.user.login // "") == $botr)
+             | . + {severity: wfc_sev} ]' \
+      "$CL_DIR/fresh-comments.json" > "$CL_DIR/comments.json"
+    jq --arg set "$CL_SET" '
+      ($set | split(",") | map(gsub("\\s+"; "") | ascii_upcase) | map(select(. != ""))) as $bl
+      | [ .[]? | select((.severity | ascii_upcase) as $s | $bl | index($s)) ]' \
+      "$CL_DIR/comments.json" > "$CL_DIR/blocking.json"
+
+    # Advisory body findings: the same author + freshness rules over the review bodies
+    # and the issue-comment stream; only entries that actually carry a severity tag.
+    {
+      jq --arg bot "$WFC_BOT" --arg botr "$WFC_BOT_REST" --arg since "$CL_TS" '
+        [ .reviews[]? | select((.author.login // "") == $bot or (.author.login // "") == $botr)
+                      | select($since == "" or ((.submittedAt // "") >= $since))
+                      | {stream: "review-body", created_at: (.submittedAt // ""), body: (.body // "")} ]' \
+        "$CL_DIR/pr.json" 2>/dev/null || echo '[]'
+      if [ -f "$CL_DIR/issue-comments.json" ]; then
+        jq --arg bot "$WFC_BOT" --arg botr "$WFC_BOT_REST" --arg since "$CL_TS" '
+          [ .[]? | select((.user.login // "") == $bot or (.user.login // "") == $botr)
+                 | select($since == "" or ((.created_at // "") >= $since))
+                 | {stream: "issue-comment", created_at: (.created_at // ""), body: (.body // "")} ]' \
+          "$CL_DIR/issue-comments.json" 2>/dev/null || echo '[]'
+      else
+        echo '[]'
+      fi
+    } | jq -s "$WFC_SEV_DEF"'
+      add | [ .[]? | select((.body // "") | test("(?i)\\b(p0|p1|p2|nit)\\b"))
+                   | . + {severity: wfc_sev} ]' > "$CL_DIR/body-findings.json"
+
+    jq '.statusCheckRollup // []' "$CL_DIR/pr.json" > "$CL_DIR/status.json" 2>/dev/null \
+      || echo '[]' > "$CL_DIR/status.json"
+
+    _cl_n="$(jq 'length' "$CL_DIR/blocking.json" 2>/dev/null || echo '?')"
+    _cl_b="$(jq 'length' "$CL_DIR/body-findings.json" 2>/dev/null || echo 0)"
+    echo "wait-for-codex classify: blocking=$_cl_n (severities: $CL_SET); advisory body findings=$_cl_b" >&2
+    exit 0
+    ;;
+  merge-verify)
+    # ── merge-verify mode (E99-F141 + E99-F144: merge receipts are code) ──────────
+    # pre  — BEFORE `gh pr merge`: the PR's CURRENT head must equal the head this
+    #        round's review actually examined (round-dir pr.json headRefOid). A commit
+    #        pushed after a clean review would otherwise inherit that review's verdict
+    #        silently; the artifact afterwards looks correct (E99-F144, hit live
+    #        2026-08-19 across six repos).
+    # post — AFTER `gh pr merge` exits 0: the PR must be observably MERGED (state,
+    #        mergedAt, mergeCommit all present). Under a merge queue or repo-level
+    #        auto-merge, `gh pr merge` may merely enqueue and still exit 0 — a PR later
+    #        rejected from the queue would be recorded as landed and its branch deleted
+    #        (E99-F141). On success it prints the merge commit oid on stdout — the
+    #        landing evidence the board's `set-status done --evidence` wants.
+    # Exit 0 = receipt holds; 7 = receipt FAILED (unreadable state included: a receipt
+    # that cannot be read never passes); 11 = post only: still OPEN at the ceiling, i.e. a
+    # merge request may be queued and live (#256); 4 = usage.
+    MV_DIR="${2:-}"; MV_PR="${3:-}"; MV_PHASE="${4:-}"
+    case "$MV_PHASE" in pre|post) ;; *) wfc_usage; exit 4 ;; esac
+    if [ -z "$MV_DIR" ] || [ -z "$MV_PR" ]; then wfc_usage; exit 4; fi
+    if ! command -v gh >/dev/null 2>&1 || ! command -v jq >/dev/null 2>&1; then
+      echo "wait-for-codex merge-verify: gh and jq are required" >&2
+      exit 4
+    fi
+    if [ "$MV_PHASE" = pre ]; then
+      _mv_reviewed="$(jq -r '.headRefOid // ""' "$MV_DIR/pr.json" 2>/dev/null || echo '')"
+      if [ -z "$_mv_reviewed" ]; then
+        echo "merge-verify pre: could not read the reviewed headRefOid from $MV_DIR/pr.json — refusing (a receipt that cannot be read never passes)" >&2
+        exit 7
+      fi
+      _mv_now="$(gh pr view "$MV_PR" --json headRefOid --jq '.headRefOid' 2>/dev/null || echo '')"
+      if [ -z "$_mv_now" ]; then
+        echo "merge-verify pre: could not read the PR's current head — refusing" >&2
+        exit 7
+      fi
+      if [ "$_mv_now" != "$_mv_reviewed" ]; then
+        echo "merge-verify pre: head moved since the reviewed round ($(printf '%.7s' "$_mv_reviewed") -> $(printf '%.7s' "$_mv_now")) — the new commits are UNREVIEWED; re-run the review round" >&2
+        exit 7
+      fi
+      exit 0
+    fi
+    # POLL, bounded (Codex #165 P2): under a merge queue `gh pr merge` legitimately
+    # enqueues and the PR stays OPEN for a while — a single sample would falsely hand a
+    # normally-merging PR to a human. Interval/ceiling are env-tunable; a CLOSED PR
+    # fails fast (rejected from the queue), and the ceiling still fails closed.
+    _mv_iv="$(wfc_int "${HARNESS_MERGE_VERIFY_INTERVAL:-10}" 10)"
+    [ "$_mv_iv" -gt 0 ] || _mv_iv=10
+    _mv_ceil="$(wfc_int "${HARNESS_MERGE_VERIFY_CEILING:-180}" 180)"
+    _mv_start="$(date +%s 2>/dev/null || true)"
+    case "$_mv_start" in ''|*[!0-9]*) _mv_start='' ;; esac
+    _mv_ticks=0
+    while :; do
+      _mv_state="$(gh pr view "$MV_PR" --json state,mergedAt,mergeCommit \
+        --jq '"\(.state) \(.mergedAt // "") \(.mergeCommit.oid // "")"' 2>/dev/null || echo '')"
+      _mv_st="${_mv_state%% *}"; _mv_rest="${_mv_state#* }"
+      _mv_at="${_mv_rest%% *}"; _mv_oid="${_mv_rest#* }"
+      if [ "$_mv_st" = "MERGED" ] && [ -n "$_mv_at" ] && [ -n "$_mv_oid" ]; then
+        printf '%s\n' "$_mv_oid"
+        exit 0
+      fi
+      if [ "$_mv_st" = "CLOSED" ]; then
+        echo "merge-verify post: PR #$MV_PR is CLOSED unmerged — rejected from the queue; do not report a landing" >&2
+        exit 7
+      fi
+      _mv_el="$(wfc_elapsed "$_mv_start" "$_mv_ticks")"
+      if [ $(( _mv_el + _mv_iv )) -gt "$_mv_ceil" ]; then
+        echo "merge-verify post: PR #$MV_PR is NOT observably merged after ${_mv_ceil}s (state='$_mv_st') — gh pr merge exiting 0 may only have enqueued it; do not report a landing" >&2
+        # Only a PR positively read as OPEN has a live request to cancel (11). Anything else
+        # — an unreadable state included — stays the fail-closed 7.
+        [ "$_mv_st" = "OPEN" ] && exit 11
+        exit 7
+      fi
+      sleep "$_mv_iv"
+      _mv_ticks=$(( _mv_ticks + _mv_iv ))
+    done
+    ;;
+  ''|-h|--help)
+    wfc_usage; exit 4 ;;
+esac
+
+# ── wait mode (the source contract: <pr> <trigger-comment-id> <round-dir>) ────
+PR_NUMBER="${1:-}"
+TRIGGER_COMMENT_ID="${2:-}"
+ROUND_DIR="${3:-}"
+
+if [ -z "$PR_NUMBER" ] || [ -z "$ROUND_DIR" ]; then
+  wfc_usage
+  exit 4
+fi
+
+INTERVAL="$(wfc_int "${HARNESS_POLL_INTERVAL:-60}" 60)"
+CEILING="$(wfc_int "${HARNESS_POLL_CEILING:-900}" 900)"
+FIRST_RESPONSE="$(wfc_int "${HARNESS_FIRST_RESPONSE:-180}" 180)"
+
+# A ZERO interval is the one numeric value wfc_int accepts that makes this loop unbounded:
+# `sleep 0` returns instantly, so the watcher would hammer the GitHub API at full rate until
+# killed from outside. (Wall-clock deadlines below would cap it at the ceiling, but a
+# rate-limit burn is still not a mode we ship.) Fail closed as a usage error instead —
+# 0 has no useful meaning for this knob, unlike HARNESS_FIRST_RESPONSE=0 (probe off).
+if [ "$INTERVAL" -le 0 ]; then
+  echo "wait-for-codex: HARNESS_POLL_INTERVAL must be a positive number of seconds" \
+       "(got '${HARNESS_POLL_INTERVAL:-}') — refusing to poll the GitHub API without a delay" >&2
+  exit 4
+fi
+
+if ! command -v gh >/dev/null 2>&1; then
+  echo "wait-for-codex: \`gh\` is not on PATH — run \`$0 preflight $PR_NUMBER\` for the full diagnostic" >&2
+  exit 4
+fi
+if ! command -v jq >/dev/null 2>&1; then
+  echo "wait-for-codex: \`jq\` is not on PATH — run \`$0 preflight $PR_NUMBER\` for the full diagnostic" >&2
+  exit 4
+fi
+
+mkdir -p "$ROUND_DIR"
+
+# POSIX: no process substitution. One command substitution + parameter expansion.
+if ! SLUG="$(gh repo view --json owner,name --jq '"\(.owner.login) \(.name)"' 2>/dev/null)" \
+   || [ -z "$SLUG" ]; then
+  echo "wait-for-codex: could not resolve the repo slug (gh repo view) — aborting" >&2
+  exit 4
+fi
+owner="${SLUG%% *}"
+repo="${SLUG##* }"
+
+# Freshness anchor: only inline comments created at/after the trigger count as this
+# round's findings. GitHub re-stamps old unresolved threads' commit_id to each new
+# head, so without this filter re-anchored stale threads masquerade as fresh findings
+# and the clean path is never reached. Resolved once at startup (the trigger comment
+# is immutable). Empty when no trigger id is passed → the filter is a no-op.
+TRIGGER_TS=""
+if [ -n "$TRIGGER_COMMENT_ID" ]; then
+  # An id was provided → we MUST resolve its timestamp. An empty TS here would silently
+  # disable the freshness filter for the whole wait and recreate the stale re-anchored-
+  # thread bug this guard prevents. So retry a few times, then abort with a usage error
+  # rather than proceeding blind. (Empty TS is reserved for the no-id compat path above.)
+  _attempt=1
+  while [ "$_attempt" -le 3 ]; do
+    TRIGGER_TS="$(gh api "repos/$owner/$repo/issues/comments/$TRIGGER_COMMENT_ID" \
+      --jq '.created_at' 2>/dev/null || echo '')"
+    [ -n "$TRIGGER_TS" ] && break
+    [ "$_attempt" -lt 3 ] && sleep 2
+    _attempt=$(( _attempt + 1 ))
+  done
+  if [ -z "$TRIGGER_TS" ]; then
+    echo "wait-for-codex: could not resolve trigger comment $TRIGGER_COMMENT_ID timestamp" \
+         "— aborting so the freshness filter is not silently disabled" >&2
+    exit 4
+  fi
+fi
+# Persist the anchor so the command body's classification step can apply the SAME
+# freshness filter. The watcher only uses it for its exit decision; review-comments.json
+# is written unfiltered (it's the raw source of truth), so without this the classifier
+# would re-admit stale re-anchored threads into blocking.json — defeating the guard.
+printf '%s' "$TRIGGER_TS" > "$ROUND_DIR/trigger-ts.txt"
+
+# Fetch the sources into the round dir for this poll.
+fetch_sources() {
+  gh pr view "$PR_NUMBER" --json reviews,comments,statusCheckRollup,headRefOid,baseRefName,baseRefOid \
+    > "$ROUND_DIR/pr.json" 2>/dev/null || return 1
+  # `--paginate --slurp` then `jq 'add // []'`: --slurp is required so paginated REST
+  # results remain parseable past page 1, and --paginate is required so a finding past
+  # page 1 is seen at all. Neither may be dropped.
+  #
+  # A FAILED fetch is NOT an empty result. This is the authoritative findings stream, so
+  # writing `[]` on failure lets a fresh clean banner be read as a clean review (exit 3),
+  # which the caller does not classify and auto-merges — a PR with blocking findings
+  # merged on a transient API error. Stage into a temp file and only publish it when the
+  # fetch AND the flatten both succeeded; otherwise keep the last good copy untouched and
+  # return 1 so the poll retries. (Piping straight into jq cannot detect this: jq reads
+  # gh's empty stdout, exits 0 and truncates the file, so the `||` branch never fires.)
+  _fs_raw="$ROUND_DIR/.review-comments.raw"
+  _fs_tmp="$ROUND_DIR/.review-comments.tmp"
+  if gh api "repos/$owner/$repo/pulls/$PR_NUMBER/comments" --paginate --slurp \
+       > "$_fs_raw" 2>/dev/null \
+     && jq 'add // []' < "$_fs_raw" > "$_fs_tmp" 2>/dev/null \
+     && [ -s "$_fs_tmp" ]; then
+    rm -f "$_fs_raw"
+    mv "$_fs_tmp" "$ROUND_DIR/review-comments.json"
+  else
+    rm -f "$_fs_raw" "$_fs_tmp"
+    return 1
+  fi
+  # Issue comments via the PAGINATED REST endpoint. gh pr view --json comments caps at
+  # first:100, so a clean banner (condition 2b) posted past page 1 would be missed and
+  # an otherwise-clean PR would time out. This file is what condition 2b scans.
+  gh api "repos/$owner/$repo/issues/$PR_NUMBER/comments" --paginate --slurp 2>/dev/null \
+    | jq 'add // []' > "$ROUND_DIR/issue-comments.json" \
+    || echo '[]' > "$ROUND_DIR/issue-comments.json"
+  if [ -n "$TRIGGER_COMMENT_ID" ]; then
+    gh api "repos/$owner/$repo/issues/comments/$TRIGGER_COMMENT_ID/reactions" \
+      > "$ROUND_DIR/reactions.json" 2>/dev/null || echo '[]' > "$ROUND_DIR/reactions.json"
+  else
+    echo '[]' > "$ROUND_DIR/reactions.json"
+  fi
+  # A truncated/failed write must never poison the evaluation. review-comments.json is
+  # deliberately NOT defaulted here: for the findings stream, an empty-but-valid `[]` is
+  # indistinguishable from a successful zero-findings fetch, so it is retried above.
+  [ -s "$ROUND_DIR/issue-comments.json" ]  || echo '[]' > "$ROUND_DIR/issue-comments.json"
+  [ -s "$ROUND_DIR/reactions.json" ]       || echo '[]' > "$ROUND_DIR/reactions.json"
+  return 0
+}
+
+# First-response probe (R32/R33): the failure this catches is "the Codex GitHub App is
+# not installed on this repo", where `@codex review` is posted and NOTHING ever answers.
+# Without it that costs the full ceiling. Armed only while no bot activity FOR THIS ROUND
+# has been seen (wfc_bot_seen scopes by the trigger anchor, so an earlier round's comments
+# and reviews cannot disarm it), disarmed PERMANENTLY on first sighting (so a slow review
+# is never mistaken for a dead app), skipped entirely at 0 (R33) or when the window is not
+# below the ceiling (which already covers that case).
+PROBE=1
+if [ "$FIRST_RESPONSE" -eq 0 ]; then PROBE=0; fi
+if [ "$FIRST_RESPONSE" -ge "$CEILING" ]; then PROBE=0; fi
+
+# Deadline clock. WFC_START anchors the wall-clock measurement; `ticks` is the summed-
+# interval fallback used only when `date` is unusable.
+WFC_START="$(date +%s 2>/dev/null || true)"
+case "$WFC_START" in ''|*[!0-9]*) WFC_START='' ;; esac
+
+elapsed=0
+ticks=0
+while :; do
+  if fetch_sources; then
+    case "$(wfc_evaluate "$ROUND_DIR" "$TRIGGER_TS")" in
+      findings) echo "wait-for-codex: review with findings landed on head (${elapsed}s)" >&2; exit 0 ;;
+      clean)    echo "wait-for-codex: clean review, 0 findings (${elapsed}s)" >&2; exit 3 ;;
+    esac
+    if [ "$PROBE" = 1 ] && wfc_bot_seen "$ROUND_DIR" "$TRIGGER_TS"; then
+      PROBE=0   # disarm permanently — Codex is awake, let the ceiling govern from here
+    fi
+  else
+    echo "wait-for-codex: gh fetch failed, retrying (${elapsed}s)" >&2
+  fi
+
+  # Re-measure BEFORE the two deadline checks, so the time this poll's `gh` calls actually
+  # took counts against them rather than being rounded away.
+  elapsed="$(wfc_elapsed "$WFC_START" "$ticks")"
+
+  if [ "$PROBE" = 1 ] && [ "$elapsed" -ge "$FIRST_RESPONSE" ]; then
+    echo "wait-for-codex: no Codex activity of any kind within ${FIRST_RESPONSE}s —" \
+         "the Codex GitHub App is most likely not installed on this repository (or has no" \
+         "access to it). Install/authorize it, or set pr_loop.enabled: false in" \
+         "harness.config.yaml. Set HARNESS_FIRST_RESPONSE=0 to disable this probe." >&2
+    exit 5
+  fi
+
+  if [ $(( elapsed + INTERVAL )) -gt "$CEILING" ]; then
+    echo "wait-for-codex: ceiling ${CEILING}s reached with no resolution — timeout" >&2
+    exit 2
+  fi
+  sleep "$INTERVAL"
+  ticks=$(( ticks + INTERVAL ))
+done

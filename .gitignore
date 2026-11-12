@@ -45,3 +45,12 @@ captures
 __pycache__/
 *.pyc
 *.pyo
+.claude/settings.local.json
+.claude/scheduled_tasks.lock
+.claude/worktrees/
+AGENTS.local.md
+CLAUDE.local.md
+AGENTS.override.md
+
+# Local scratch holding device/host identifiers (PII) — never commit; ignore, do not delete (E00-F01 R11)
+jellywing-delete.md

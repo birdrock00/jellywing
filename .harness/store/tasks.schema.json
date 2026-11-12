@@ -1,0 +1,173 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "harness-sdd TaskStore (local backend)",
+  "type": "object",
+  "required": ["project", "epics"],
+  "properties": {
+    "project": { "type": "string" },
+    "epics": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "title", "status", "features"],
+        "properties": {
+          "id": { "type": "string", "pattern": "^E[0-9]+$" },
+          "title": { "type": "string" },
+          "owner": { "type": "string", "description": "Optional (additive, E10-F01). Coarse epic-level ownership. Absent ⇒ epic unowned; a feature with no owner of its own falls back to this. Not required; absence keeps existing stores valid." },
+          "status": {
+            "$comment": "Epic lifecycle: draft → planned → in-progress → done. `pending` is a legacy alias of `planned` (gating-equivalent, kept for backward compatibility). Feature/slice status enums are separate and unchanged.",
+            "enum": ["draft", "planned", "pending", "in-progress", "done"]
+          },
+          "features": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["id", "title", "status", "sdd", "spec_path"],
+              "properties": {
+                "id": { "type": "string", "pattern": "^E[0-9]+-F[0-9]+$" },
+                "title": { "type": "string" },
+                "owner": { "type": "string", "description": "Optional (additive, E10-F01). Fine feature-level ownership. Absent ⇒ falls back to the parent epic's owner (effective owner). Not required; absence keeps existing stores valid." },
+                "status": {
+                  "enum": ["pending", "spec-ready", "in-progress", "in-review", "done"]
+                },
+                "sdd": { "type": "boolean" },
+                "autonomous": { "type": "boolean" },
+                "depends_on": { "type": "array", "items": { "type": "string" } },
+                "parked": {
+                  "$comment": "A park may NOT accompany status 'done' — see the if/then below. A park means 'not yet workable'; done means finished, and select() short-circuits a done target to target-complete before any blocker is computed, so a done+parked feature would report complete rather than blocked.",
+                  "type": "object",
+                  "description": "Optional (additive, E06-F07). Hold a real feature that is not yet workable — external blocking, where depends_on covers only board-internal blocking. PRESENCE MEANS PARKED: the selector emits a `parked` blocker and never selects it, while leaving featureRoute untouched, so unparking restores the prior routing exactly. A FIELD, not a status value: a park can arrive after speccing, so it must compose with every status rather than replace one. `reason` is required and non-empty — a park with no legible reason is the defect this fixes. Features only; slice parks are deliberately out of scope.",
+                  "required": ["reason"],
+                  "properties": {
+                    "reason": { "type": "string", "minLength": 1 },
+                    "unblocked_by": { "type": "string", "minLength": 1 },
+                    "gate": {
+                      "$comment": "Optional (additive, E99-F77). A DISCRIMINATOR on the existing park, deliberately not a second field and not a status value. `owner` = every remaining requirement is a person's (a console attestation, a deploy approval, a signature); no agent will ever advance it, so `in-progress`/`in-review` would route a Builder or Reviewer at work that does not exist and `done` would be false. The selector reports it as `gated-owner` instead of `parked` so an Orchestrator can act on the diagnostic without reading progress/history.md. The enum is CLOSED on purpose: an unrecognised value is a validation error, never a silent downgrade to a plain park, because a wrong reason code is the defect this fixes. Absent ⇒ an ordinary park, byte-identical to before. `merge` (E99-F130) = APPROVED, PR OPEN, AWAITING MERGE: the review finished and the work is in flight to the default branch, so no agent role has anything left to do — the selector reports `awaiting-merge` (distinct from `gated-owner`, whose remedy is a person), and the ONE sanctioned way out is `set-status <id> done --evidence <merge-ref>`, which clears the park and writes the landing receipt in a single guarded write.",
+                      "enum": ["owner", "merge"]
+                    },
+                    "pr": {
+                      "$comment": "Optional, meaningful with gate: merge (E99-F130) — the PR the approved feature is awaiting; an operator receipt, never parsed by tooling.",
+                      "type": "string",
+                      "minLength": 1
+                    }
+                  }
+                },
+                "spec_path": { "type": "string" },
+                "landed": {
+                  "$comment": "Optional (additive, E99-F102). The FEATURE-level landing attestation, written by `tasks-lock.py set-status <id> done --evidence <ref>`, which requires it for EVERY feature — sliced or not. It is deliberately NOT delegated to the slice-level `merged` boolean below: nothing in the harness ever WRITES `slice.merged` (every occurrence in tools/ is a read or a type assertion; store/local.md has the agent set it via `apply --mutator`), so it is hand-typed — exactly the say-so this field replaces. E09-F02 is the proof: a sliced feature whose three slices are all `merged: true` while the first slice's own `pr` points at viernes-infra#24, CLOSED UNMERGED. The two invariants are independent and a sliced feature must satisfy both. An audit of 148 `done` features found FOUR unlanded (E99-F58, E99-F59 on never-pushed branches; E09-F02, E99-F29 on closed unmerged PRs). `ref` is required and non-empty for the same reason `parked.reason` is: an attestation nobody can re-check is the defect this fixes, and `ref` is what makes the re-check one `git merge-base --is-ancestor` instead of an archaeology pass over FOUR colliding id namespaces. `verified` is a CLOSED enum, like `parked.gate`, and ALL THREE VALUES ARE WRITABLE (E99-F129): `ancestor` = the ref RESOLVED and `git merge-base --is-ancestor` against the repository's default branch came back true (row 7 of the decision table in tools/tasks-lock.py); `declared` = a `none:<why>` ref, i.e. work with no commit at all (an AWS/console action, a supersession); `unchecked` = the check was impossible from that checkout (the object is not there, no default branch could be determined, the remote could not be asked) and the record says so, with a warning, rather than blocking the write. Two situations REFUSE the transition outright instead of recording anything: a claim naming a repository the manifest does not declare, and work provably not on a base confirmed current. Absent ⇒ a legacy or hand-edited entry, byte-identical to before — this field is never required by the schema, only by the write path.",
+                  "type": "object",
+                  "required": ["ref", "verified"],
+                  "properties": {
+                    "ref": { "type": "string", "minLength": 1 },
+                    "commit": { "$comment": "Optional (additive, E99-F129). The IMMUTABLE commit id `ref` resolved to when the record was written, and the id ancestry was actually computed on. `ref` is what the operator claimed and may be a MOVING target — a branch name resolves just as a sha does, and recording only that would be an attestation that decays the moment the branch moves. Present exactly when this checkout resolved the object, so its presence is the signal that a lookup happened; required wherever `verified` is `ancestor`, because an attestation nobody can re-check is the defect this feature exists to remove.", "type": "string", "minLength": 1 },
+                    "verified": { "enum": ["ancestor", "unchecked", "declared"] },
+                    "repo": { "type": "string", "minLength": 1 },
+                    "base": { "type": "string", "minLength": 1 },
+                    "slices": {
+                      "$comment": "PER-SLICE landing, one entry per slice repository (E99-F102). A single feature-level ref cannot attest a sliced feature: it names no repository, so one slice's merge commit would be taken as proof for the whole feature while another slice sat unmerged. tasks-lock therefore requires `--evidence <repo>=<ref>` once per slice repo, and each entry carries that repository's OWN verdict — resolved and checked in that repository, never inferred from another's. COVERAGE (an entry for every slices[].repo) is enforced by that write path and NOT here, because relating one array's members to another's is not expressible in draft-07 — this schema types the record and constrains the rollup. Absent ⇒ a single-repo feature or a legacy entry.",
+                      "type": "array",
+                      "minItems": 1,
+                      "items": {
+                        "type": "object",
+                        "required": ["repo", "ref", "verified"],
+                        "properties": {
+                          "repo": { "type": "string", "minLength": 1 },
+                          "ref": { "type": "string", "minLength": 1 },
+                          "commit": { "type": "string", "minLength": 1 },
+                          "verified": { "enum": ["ancestor", "unchecked", "declared"] },
+                          "base": { "type": "string", "minLength": 1 }
+                        },
+                        "allOf": [
+                          {
+                            "$comment": "A per-slice `ancestor` must name the FULL proof set (E99-F129): the immutable `commit` ancestry was computed on, the `repo` it was computed in (already required above for every slice record), and the `base` it was computed against. Any one of them missing and the claim is unre-checkable — which is the defect this feature exists to remove, not a lesser form of it. The write path emits all three together (`_verify` row 7 returns ref/commit/verified/repo/base in one literal), so this requires nothing the tool does not already produce.",
+                            "if": { "required": ["verified"], "properties": { "verified": { "const": "ancestor" } } },
+                            "then": { "required": ["commit", "base"] }
+                          }
+                        ]
+                      }
+                    }
+                  },
+                  "allOf": [
+                    {
+                      "$comment": "A feature-level `ancestor` on a SINGLE-REPO feature must name the FULL proof set (E99-F129): `commit` (the immutable id ancestry was computed on — `ref` may be a branch, which MOVES), `repo` (the repository it was computed IN — a sha proves nothing until you know where to look for it), and `base` (what it was computed AGAINST — `ancestor of` is meaningless without the second operand). Requiring only `commit` left a record that named neither the repository nor the base, i.e. an attestation nobody can re-check, which is exactly what this feature exists to remove. Scoped to the unsliced case on purpose: a sliced feature's `ref` is a joined summary of several repositories, so there is no one commit/repo/base for it — each slice carries its own under `slices[]`.",
+                      "if": {
+                        "required": ["verified"],
+                        "properties": { "verified": { "const": "ancestor" } },
+                        "not": { "required": ["slices"] }
+                      },
+                      "then": { "required": ["commit", "repo", "base"] }
+                    },
+                    {
+                      "$comment": "The feature-level rollup can never be STRONGER than its slices: if any slice is not `ancestor`, the feature is not `ancestor` either. The write path already enforces this itself — it rolls the feature-level value up to the WEAKEST slice — so what this rule guards is the other way in: a hand-edited or imported board. Without it, a board could claim a proof over an `unchecked` slice — the same false attestation the per-slice binding exists to prevent, re-entered by hand. Expressible in draft-07 via `contains`, so all three acceptance surfaces (this schema, validate-board.py's zero-dependency fallback, next-task.mjs) can agree on it.",
+                      "if": {
+                        "required": ["slices"],
+                        "properties": {
+                          "slices": {
+                            "contains": {
+                              "required": ["verified"],
+                              "properties": { "verified": { "not": { "const": "ancestor" } } }
+                            }
+                          }
+                        }
+                      },
+                      "then": { "properties": { "verified": { "not": { "const": "ancestor" } } } }
+                    }
+                  ]
+                },
+                "slices": {
+                  "type": "array",
+                  "minItems": 1,
+                  "items": {
+                    "type": "object",
+                    "required": ["id", "repo", "status"],
+                    "properties": {
+                      "id": { "type": "string", "pattern": "^E[0-9]+-F[0-9]+@[a-z0-9-]+$" },
+                      "repo": { "type": "string" },
+                      "status": {
+                        "enum": ["pending", "spec-ready", "in-progress", "in-review", "done", "failed"]
+                      },
+                      "merged": { "type": "boolean" },
+                      "spec_path": { "type": "string" },
+                      "pr": { "type": "string", "description": "PR URL the child SDD loop opened; a valid `gh pr view` selector for the merge poll" },
+                      "depends_on": { "type": "array", "items": { "type": "string" } }
+                    }
+                  }
+                }
+              },
+              "allOf": [
+                {
+                  "$comment": "Cross-field (E06-F07): a `done` feature may not carry a park. A park means 'not yet workable'; done means finished. It is also unreachable through the sanctioned path — tasks-lock set-status refuses a transition while parked — so it can only arrive by hand-editing, and left legal it would defeat the targeting contract: select() short-circuits a done target to `target-complete` before any blocker is computed, so the park would never be reported.",
+                  "if": {
+                    "required": ["parked"],
+                    "properties": { "status": { "const": "done" } }
+                  },
+                  "then": { "properties": { "status": { "not": { "const": "done" } } } }
+                },
+                {
+                  "$comment": "Cross-field: a sliced feature may only be `done` when every slice is done AND merged. Single-repo features (no slices) are unaffected — the `if` is false without slices.",
+                  "if": {
+                    "required": ["slices"],
+                    "properties": { "status": { "const": "done" } }
+                  },
+                  "then": {
+                    "properties": {
+                      "slices": {
+                        "items": {
+                          "required": ["merged"],
+                          "properties": {
+                            "status": { "const": "done" },
+                            "merged": { "const": true }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              ]
+            }
+          }
+        }
+      }
+    }
+  }
+}
