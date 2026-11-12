@@ -20,7 +20,7 @@ cd "$ROOT"
 CONFIG=".harness/harness.config.yaml"
 
 # Case list, appended as pairs land; consumed by the all-cases sweep.
-CASES="r1_test_command_runs_unit_tests r2_typecheck_command_compiles_sources r3_lint_command_completes r4_init_script_resolves_and_passes r5_board_project_name_is_jellywing r6_product_constitution_has_no_todo r7_server_read_only_principle_stated r8_glossary_defines_domain_terms r9_project_gate_reports_prerequisites r10_android_test_paths_classified_as_test"
+CASES="r1_test_command_runs_unit_tests r2_typecheck_command_compiles_sources r3_lint_command_completes r4_init_script_resolves_and_passes r5_board_project_name_is_jellywing r6_product_constitution_has_no_todo r7_server_read_only_principle_stated r8_glossary_defines_domain_terms r9_project_gate_reports_prerequisites r10_android_test_paths_classified_as_test r11_pii_scratch_is_ignored"
 
 fail() {
     printf 'FAIL %s\n' "$1" >&2
@@ -220,6 +220,22 @@ r10_android_test_paths_classified_as_test() {
         fail "R10 r10_android_test_paths_classified_as_test: effective pattern no longer matches app/src/test/.../ServerUrlUtilTest.java — built-in regression"
     fi
     echo "PASS R10 r10_android_test_paths_classified_as_test"
+}
+
+r11_pii_scratch_is_ignored() {
+    # R11 — the local scratch path holding device/host identifiers is
+    # git-ignored, absent from porcelain status, and STILL PRESENT on disk.
+    # The case is read-only: it never writes, deletes, chmods, reads, or
+    # quotes the file.
+    scratch="jellywing-delete.md"
+    git check-ignore -q "$scratch" \
+        || fail "R11 r11_pii_scratch_is_ignored: git check-ignore does not ignore $scratch"
+    if git status --porcelain | grep -qF -- "$scratch"; then
+        fail "R11 r11_pii_scratch_is_ignored: git status --porcelain still lists $scratch"
+    fi
+    [ -f "$scratch" ] \
+        || fail "R11 r11_pii_scratch_is_ignored: $scratch no longer exists — the contract ignores it, never deletes it"
+    echo "PASS R11 r11_pii_scratch_is_ignored"
 }
 
 main() {
