@@ -235,6 +235,10 @@ public class DeleteFromLibraryWiringSourceTest {
 
         assertTrue("the helper must remove the deleted entry (R4)",
                 body.contains("removeFromQueue("));
+        assertTrue("the helper must drop EVERY entry naming the deleted item — a song queued "
+                        + "twice must not leave a dead entry behind (R4)",
+                body.contains("positionsOfItem(")
+                        && body.contains("removeFromQueue(positions.get("));
         assertTrue("the helper must know whether the removed entry was the current one (R4)",
                 body.contains("getPosition()"));
         assertTrue("the helper must start the track that now occupies the index (R4)",

@@ -200,35 +200,47 @@ public final class LibraryDeleteUtil {
 
     /**
      * R4 remove-current-and-advance (plan note 3): QueueManager re-bases the index for
-     * removals before the current one but has no current-entry semantics, so we drop the
-     * deleted entry and start whatever now occupies that index. A lone deleted entry
-     * stops playback cleanly instead of leaving the surface on a dead item.
+     * removals before the current one but has no current-entry semantics, so we drop every
+     * entry naming the deleted item (a song queued twice leaves no dead entry) and start
+     * whatever now occupies the first of those indices. A lone deleted entry stops playback
+     * cleanly instead of leaving the surface on a dead item.
      */
     private static void removeFromQueueAndAdvance(String itemId) {
-        int pos = indexOfItem(MusicPlayerRemote.getPlayingQueue(), itemId);
-        if (pos < 0) {
+        List<Integer> positions = positionsOfItem(MusicPlayerRemote.getPlayingQueue(), itemId);
+        if (positions.isEmpty()) {
             return;
         }
-        boolean wasCurrent = pos == MusicPlayerRemote.getPosition();
-        MusicPlayerRemote.removeFromQueue(pos);
+        int first = positions.get(0);
+        boolean wasCurrent = positions.contains(MusicPlayerRemote.getPosition());
+        // Every entry naming the deleted item goes, highest index first so the earlier indices
+        // stay valid against the live queue. A song queued twice would otherwise leave a second
+        // entry pointing at a file the server no longer has.
+        for (int i = positions.size() - 1; i >= 0; i--) {
+            MusicPlayerRemote.removeFromQueue(positions.get(i));
+        }
         List<Song> remaining = MusicPlayerRemote.getPlayingQueue();
         if (remaining.isEmpty()) {
             MusicPlayerRemote.clearQueue();
             return;
         }
         if (wasCurrent) {
-            MusicPlayerRemote.playSongAt(Math.min(pos, remaining.size() - 1));
+            MusicPlayerRemote.playSongAt(Math.min(first, remaining.size() - 1));
         }
     }
 
 
-    private static int indexOfItem(List<Song> queue, String itemId) {
+    /**
+     * Every queue index that names this item, in ascending order. Package-visible so the JVM
+     * suite can assert the duplicate-entry case that no device test covers.
+     */
+    static List<Integer> positionsOfItem(List<Song> queue, String itemId) {
+        List<Integer> found = new java.util.ArrayList<>();
         for (int i = 0; i < queue.size(); i++) {
             if (itemId.equals(queue.get(i).id)) {
-                return i;
+                found.add(i);
             }
         }
-        return -1;
+        return found;
     }
 
     private static void toast(int stringRes) {
