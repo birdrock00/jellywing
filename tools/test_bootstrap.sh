@@ -20,7 +20,7 @@ cd "$ROOT"
 CONFIG=".harness/harness.config.yaml"
 
 # Case list, appended as pairs land; consumed by the all-cases sweep.
-CASES="r1_test_command_runs_unit_tests r2_typecheck_command_compiles_sources r3_lint_command_completes r4_init_script_resolves_and_passes r5_board_project_name_is_jellywing r6_product_constitution_has_no_todo r7_server_read_only_principle_stated"
+CASES="r1_test_command_runs_unit_tests r2_typecheck_command_compiles_sources r3_lint_command_completes r4_init_script_resolves_and_passes r5_board_project_name_is_jellywing r6_product_constitution_has_no_todo r7_server_read_only_principle_stated r8_glossary_defines_domain_terms"
 
 fail() {
     printf 'FAIL %s\n' "$1" >&2
@@ -155,6 +155,39 @@ r7_server_read_only_principle_stated() {
     ' "$f" \
         || fail "R7 r7_server_read_only_principle_stated: '## Principles & hard constraints' has no Jellyfin read-only line whose line or neighbour states the client-local store"
     echo "PASS R7 r7_server_read_only_principle_stated"
+}
+
+r8_glossary_defines_domain_terms() {
+    # R8 — the glossary defines the nine domain terms this product's specs
+    # use, and keeps every entry the seeded file already carried. Both lists
+    # are embedded literally here (not read from the plan) so the case fails
+    # loudly, not vacuously, if the plan is ever reworded. Each term must
+    # appear as a bolded list entry: `- **Term**`.
+    f=".harness/specs/glossary.md"
+    # Heredoc, one term per line: a pipe would run the loop body in a
+    # subshell, where fail()'s exit would not end the run.
+    while IFS= read -r t; do
+        if ! grep -qF -- "- **$t**" "$f"; then
+            fail "R8 r8_glossary_defines_domain_terms: glossary has no bolded list entry for '$t'"
+        fi
+    done <<'TERMS'
+Jellyfin server
+Server connection
+Library
+Category
+Language
+Playlist
+Favorite
+Cache
+Up next
+Handoff
+Take over
+Bot-handled
+Human-handled
+Operator inbox
+Run
+TERMS
+    echo "PASS R8 r8_glossary_defines_domain_terms"
 }
 
 main() {
