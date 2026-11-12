@@ -19,6 +19,15 @@ import java.util.List;
  * English-only string rule (R12).
  */
 public class DeleteFromLibraryWiringSourceTest {
+
+    /**
+     * The ONE fragment the R12 rule is keyed on, shared by both call sites (the default-resources
+     * key list and the locale scan). Two literals meant the locale side could be pointed at a
+     * fragment matching nothing and stay green — the English-only rule then silently stopped
+     * applying to any key (review round 2, F5).
+     */
+    private static final String KEY_FRAGMENT = "delete_from_library";
+
     /**
      * R12's frozen key list, used only as a floor. The contract itself reads the keys out of
      * the default resources (see deleteFromLibraryKeys), so a tenth delete string added next
@@ -56,6 +65,12 @@ public class DeleteFromLibraryWiringSourceTest {
      */
     @Test
     public void testNewStringsLiveInDefaultEnglishOnly() throws Exception {
+        // Anti-vacuity floor on THIS test's own input, not just on the helper's: if the fragment
+        // stops matching anything, every locale trivially has "zero translations" and the rule
+        // passes without checking anything (F5).
+        assertFalse("the locale rule is vacuous if the " + KEY_FRAGMENT + " key list is empty",
+                deleteFromLibraryKeys().isEmpty());
+
         File valuesDir = new File("src/main/res");
         File[] localeDirs = valuesDir.listFiles(
                 file -> file.isDirectory() && file.getName().startsWith("values-"));
@@ -71,7 +86,7 @@ public class DeleteFromLibraryWiringSourceTest {
             localeFilesChecked++;
             String locale = new String(Files.readAllBytes(localeStrings.toPath()),
                     StandardCharsets.UTF_8);
-            List<String> translated = stringKeysMatching(locale, "delete_from_library");
+            List<String> translated = stringKeysMatching(locale, KEY_FRAGMENT);
             assertTrue("R12: " + localeDir.getName() + " must not translate any "
                             + "delete_from_library* string (English-only by design); found "
                             + translated.size() + ": " + translated,
@@ -145,6 +160,34 @@ public class DeleteFromLibraryWiringSourceTest {
         assertTrue("the gate must drive the item's visibility (R1)", body.contains("setVisible("));
         assertFalse("the gate may not hard-code the item visible (R1: no current song ⇒ hidden)",
                 body.contains("setVisible(true)"));
+        // The exact expression, not merely the presence of setVisible(. R2-B1: an always-visible
+        // gate that kept every token above (setVisible(serverBacked || true)) survived the whole
+        // round-2 campaign, because nothing read what is actually passed to setVisible.
+        assertTrue("the gate must pass exactly the server-backed flag to setVisible — a term that "
+                        + "ORes anything onto it (serverBacked || true) shows Delete-from-library "
+                        + "for local-only songs and the server refuses them (R1, R2-B1)",
+                body.contains("setVisible(serverBacked)"));
+    }
+
+    /**
+     * R12/F5: the rule has exactly one fragment. This reads the test's own source, because the
+     * defect being pinned is in the test: re-splitting the two {@code stringKeysMatching} call
+     * sites back into separate literals is what let the locale scan be pointed at nothing while
+     * the default-resources side kept the suite green. One quoted fragment literal may exist —
+     * the declaration of {@link #KEY_FRAGMENT}.
+     */
+    @Test
+    public void testBothStringKeyCallSitesShareTheOneFragment() throws Exception {
+        String source = read("src/test/java/club/thatpetbff/gramophone/util/"
+                + "DeleteFromLibraryWiringSourceTest.java");
+        long literals = java.util.Arrays.stream(source.split("\n"))
+                .map(String::trim)
+                .filter(line -> !line.startsWith("*") && !line.startsWith("//"))
+                .filter(line -> line.contains("\"" + KEY_FRAGMENT + "\""))
+                .count();
+        assertEquals("both stringKeysMatching call sites must use KEY_FRAGMENT; a second \""
+                + KEY_FRAGMENT + "\" literal can drift apart and make the locale rule vacuous "
+                + "(R12/F5)", 1L, literals);
     }
 
     /**
@@ -437,7 +480,7 @@ public class DeleteFromLibraryWiringSourceTest {
      * {@code delete_from_library} prefix (which also covers {@code action_delete_from_library}).
      */
     private static List<String> deleteFromLibraryKeys() throws Exception {
-        return stringKeysMatching(read("src/main/res/values/strings.xml"), "delete_from_library");
+        return stringKeysMatching(read("src/main/res/values/strings.xml"), KEY_FRAGMENT);
     }
 
     /** Drops comment lines, so a source contract asserts on code rather than prose. */
