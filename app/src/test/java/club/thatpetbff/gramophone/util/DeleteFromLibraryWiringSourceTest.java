@@ -300,9 +300,17 @@ public class DeleteFromLibraryWiringSourceTest {
         int entry = util.indexOf("public static void deleteFromLibrary");
         int apiCall = util.indexOf("DeleteItem(", entry);
         assertTrue("entry point and request must exist", entry >= 0 && apiCall > entry);
-        String beforeRequest = util.substring(entry, apiCall);
+        String beforeRequest = codeOnly(util.substring(entry, apiCall));
         assertTrue("guard must arm the latch before the request (R8)",
                 beforeRequest.contains("tryBeginDelete("));
+        // R3/R4: nothing may be reported to the user before the server has answered. This is
+        // the optimistic-success mutant the whole-file reading let through — the outcome
+        // dispatch belongs to the callbacks, not to the request path.
+        assertFalse("no outcome may be dispatched before the request is issued (R3/R4: the "
+                        + "success claim must follow the server)",
+                beforeRequest.contains("handleOutcome("));
+        assertFalse("the request path may not claim success up front (R4)",
+                beforeRequest.contains("DeleteOutcome.SUCCESS"));
         int handler = util.indexOf("static void handleOutcome");
         int switchStart = util.indexOf("switch (outcome)", handler);
         assertTrue("outcome handler must exist", handler >= 0 && switchStart > handler);
