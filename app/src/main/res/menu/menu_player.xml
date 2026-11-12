@@ -22,4 +22,9 @@
         android:title="@string/action_sleep_timer"
         app:showAsAction="never" />
 
+    <item
+        android:id="@+id/action_delete_from_library"
+        android:title="@string/action_delete_from_library"
+        app:showAsAction="never" />
+
 </menu>

@@ -9,6 +9,8 @@ import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.appcompat.widget.Toolbar;
 
+import android.view.Menu;
+
 import club.thatpetbff.gramophone.R;
 import club.thatpetbff.gramophone.dialogs.AddToPlaylistDialog;
 import club.thatpetbff.gramophone.dialogs.CreatePlaylistDialog;
@@ -84,6 +86,24 @@ public abstract class AbsPlayerFragment extends AbsMusicServiceFragment implemen
 
     protected void toggleFavorite(Song song) {
         MusicUtil.toggleFavorite(song);
+    }
+
+    /**
+     * R1 visibility gate for the Delete-from-library overflow item: show it only when a
+     * server-backed song is current. With no service connection or an empty queue
+     * {@link MusicPlayerRemote#getCurrentSong()} is null, which hides the item rather
+     * than crashing. Permission is deliberately NOT probed here (operator decision:
+     * refusals surface as toasts, see R5).
+     */
+    protected void applyDeleteFromLibraryVisibility(@Nullable Toolbar toolbar) {
+        if (toolbar == null) return;
+        Menu menu = toolbar.getMenu();
+        if (menu == null) return;
+        MenuItem deleteItem = menu.findItem(R.id.action_delete_from_library);
+        if (deleteItem == null) return;
+        Song song = MusicPlayerRemote.getCurrentSong();
+        boolean serverBacked = song != null && song.id != null && !song.id.trim().isEmpty();
+        deleteItem.setVisible(serverBacked);
     }
 
     protected boolean isToolbarShown() {
