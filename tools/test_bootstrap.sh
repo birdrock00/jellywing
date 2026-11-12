@@ -20,7 +20,7 @@ cd "$ROOT"
 CONFIG=".harness/harness.config.yaml"
 
 # Case list, appended as pairs land; consumed by the all-cases sweep.
-CASES="r1_test_command_runs_unit_tests r2_typecheck_command_compiles_sources"
+CASES="r1_test_command_runs_unit_tests r2_typecheck_command_compiles_sources r3_lint_command_completes"
 
 fail() {
     printf 'FAIL %s\n' "$1" >&2
@@ -50,6 +50,33 @@ r2_typecheck_command_compiles_sources() {
     [ -n "$cmd" ] || fail "R2 r2_typecheck_command_compiles_sources: verification.typecheck_command is empty in $CONFIG — nothing to run"
     sh -c "$cmd" || fail "R2 r2_typecheck_command_compiles_sources: configured command '$cmd' exited non-zero"
     echo "PASS R2 r2_typecheck_command_compiles_sources"
+}
+
+r3_lint_command_completes() {
+    # R3 — verification.lint_command, read from the config, must be non-empty,
+    # run from the repository root, and exit 0; the text lint report must be
+    # refreshed by THIS run (.tests.md freshness clause).
+    #
+    # Sharp edge (doc-critic re-audit): with unchanged inputs Gradle reports
+    # lintDebug UP-TO-DATE and does NOT rewrite the report, so a bare mtime
+    # comparison would go RED on a legitimate re-run. Resolution chosen here:
+    # remove the report (a Gradle output, inside gitignored app/build/) right
+    # before invoking — deleting an output forces the task to re-execute —
+    # then assert existence + mtime >= case start. The freshness assertion is
+    # kept verbatim, not loosened to existence-only. Parse duplicated from r1
+    # by design; T12 (R1/R2/R3) unifies it.
+    report="app/build/reports/lint-results-debug.txt"
+    cmd=$(sed -n 's/^[[:space:]]*lint_command:[[:space:]]*//p' "$CONFIG" | head -n 1)
+    cmd=${cmd%%#*}                                   # trailing YAML comment
+    cmd=$(printf '%s' "$cmd" | sed -e 's/[[:space:]]*$//' -e 's/^"\(.*\)"$/\1/')
+    [ -n "$cmd" ] || fail "R3 r3_lint_command_completes: verification.lint_command is empty in $CONFIG — nothing to run"
+    start=$(date +%s)
+    rm -f "$report"
+    sh -c "$cmd" || fail "R3 r3_lint_command_completes: configured command '$cmd' exited non-zero"
+    [ -f "$report" ] || fail "R3 r3_lint_command_completes: '$cmd' exited 0 but produced no $report — the lint report was not written"
+    mt=$(stat -c %Y "$report")
+    [ "$mt" -ge "$start" ] || fail "R3 r3_lint_command_completes: $report mtime ($mt) predates case start ($start) — lint did not actually re-run"
+    echo "PASS R3 r3_lint_command_completes"
 }
 
 main() {
