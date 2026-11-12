@@ -26,7 +26,7 @@
         {
           "id": "E01-F01",
           "title": "Delete the playing song from the Jellyfin library (and every playlist holding it)",
-          "status": "in-progress",
+          "status": "in-review",
           "sdd": true,
           "autonomous": false,
           "depends_on": [],
