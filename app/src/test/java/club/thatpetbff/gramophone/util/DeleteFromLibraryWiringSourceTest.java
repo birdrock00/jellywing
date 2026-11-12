@@ -153,6 +153,27 @@ public class DeleteFromLibraryWiringSourceTest {
                 block.contains("FavoritesStore.notifyChanged()"));
     }
 
+    /**
+     * R7: a network/server failure names itself and changes nothing — no deletion
+     * claim, no queue edit, no library refresh.
+     */
+    @Test
+    public void testFailureOutcomesChangeNothingButToast() throws Exception {
+        String util = read("src/main/java/club/thatpetbff/gramophone/util/LibraryDeleteUtil.java");
+        int start = util.indexOf("case NETWORK_FAILURE:");
+        assertTrue("handleOutcome must branch on NETWORK_FAILURE (R7)", start >= 0);
+        int end = util.indexOf("}", util.indexOf("break;", start));
+        String block = util.substring(start, end > 0 ? end : util.length());
+        assertTrue("Failure must show the failure toast (R7)",
+                block.contains("R.string.delete_from_library_failed"));
+        assertFalse("Failure must not touch the queue (R7)",
+                block.contains("removeFromQueue"));
+        assertFalse("Failure must not refresh favorites (R7)",
+                block.contains("FavoritesStore.notifyChanged"));
+        assertFalse("Failure must never claim success (R7)",
+                block.contains("delete_from_library_success"));
+    }
+
     private static long countCodeLinesWith(String source, String needle) {
         return java.util.Arrays.stream(source.split("\n"))
                 .map(String::trim)

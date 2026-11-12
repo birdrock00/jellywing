@@ -69,13 +69,17 @@ public final class LibraryDeleteUtil {
         if (error instanceof org.jellyfin.apiclient.model.net.HttpException) {
             status = ((org.jellyfin.apiclient.model.net.HttpException) error).getStatusCode();
         }
-        if (status != null && status >= 200 && status < 300) {
+        if (status == null) {
+            // R7: no HTTP status at all — a transport failure (socket, timeout, DNS).
+            return DeleteOutcome.NETWORK_FAILURE;
+        }
+        if (status >= 200 && status < 300) {
             return DeleteOutcome.SUCCESS;
         }
-        if (status != null && status == 401) {
+        if (status == 401) {
             return DeleteOutcome.PERMISSION_DENIED;
         }
-        if (status != null && status == 404) {
+        if (status == 404) {
             // R6: the item is genuinely not on the server anymore — its own outcome with
             // its own toast and the R4/R9 client cleanup (no success claim, plan note 5).
             return DeleteOutcome.ALREADY_GONE;

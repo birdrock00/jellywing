@@ -36,4 +36,28 @@ public class LibraryDeleteOutcomeTest {
         assertEquals("A 404 must map to ALREADY_GONE — its own toast, not a generic failure (R6)",
                 DeleteOutcome.ALREADY_GONE, LibraryDeleteUtil.mapOutcome(missing));
     }
+
+    @Test
+    public void testTransportErrorMapsToNetworkFailure() {
+        // A transport failure has no HTTP status at all: a bare exception, or an
+        // HttpException whose status was never set (the socket/timeout shape).
+        assertEquals("No status at all must map to NETWORK_FAILURE (R7)",
+                DeleteOutcome.NETWORK_FAILURE,
+                LibraryDeleteUtil.mapOutcome(new RuntimeException("connection reset")));
+
+        org.jellyfin.apiclient.model.net.HttpException timedOut =
+                new org.jellyfin.apiclient.model.net.HttpException("VolleyError TimeoutError: ", null);
+        assertEquals("Statusless HttpException (timeout) must map to NETWORK_FAILURE (R7)",
+                DeleteOutcome.NETWORK_FAILURE, LibraryDeleteUtil.mapOutcome(timedOut));
+    }
+
+    @Test
+    public void testOtherStatusMapsToServerFailure() {
+        org.jellyfin.apiclient.model.net.HttpException serverBoom =
+                new org.jellyfin.apiclient.model.net.HttpException("VolleyError: ", null);
+        serverBoom.setStatusCode(503);
+
+        assertEquals("Any status other than 2xx/401/404 must map to SERVER_FAILURE (R7)",
+                DeleteOutcome.SERVER_FAILURE, LibraryDeleteUtil.mapOutcome(serverBoom));
+    }
 }
