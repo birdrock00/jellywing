@@ -69,6 +69,50 @@ public class DeleteFromLibraryDialogSourceTest {
                 outsidePositive.contains("deleteFromLibrary("));
     }
 
+    /**
+     * R2: the confirm copy is the human gate on an irreversible, server-side action, so the
+     * words themselves are load-bearing — a key-exists assertion is not coverage. Replacing
+     * the body with "Remove this song?" must not stay green: it drops all three of the
+     * warnings the operator approved.
+     */
+    @Test
+    public void testConfirmCopyCarriesTheThreeWarnings() throws Exception {
+        String body = stringValue("delete_from_library_body").toLowerCase(java.util.Locale.US);
+
+        assertTrue("confirm copy must name the server as the place the file leaves (R2): " + body,
+                body.contains("server"));
+        assertTrue("confirm copy must say the deletion is permanent (R2): " + body,
+                body.contains("permanent") || body.contains("cannot be undone"));
+        assertTrue("confirm copy must warn it leaves every playlist holding the song (R2): " + body,
+                body.contains("playlist") && (body.contains("every") || body.contains("all")));
+        assertTrue("confirm copy must say it cannot be undone from the app (R2): " + body,
+                body.contains("undone") || body.contains("irreversible"));
+    }
+
+    /** The confirm/cancel buttons must be unambiguous verbs, not a generic OK (R2). */
+    @Test
+    public void testConfirmAndCancelButtonsAreDistinctVerbs() throws Exception {
+        String confirm = stringValue("delete_from_library_confirm").trim();
+        String cancel = stringValue("delete_from_library_cancel").trim();
+        assertTrue("the positive button must be an explicit delete verb (R2): " + confirm,
+                confirm.toLowerCase(java.util.Locale.US).contains("delete"));
+        assertTrue("the negative button must be an explicit cancel verb (R2): " + cancel,
+                cancel.toLowerCase(java.util.Locale.US).contains("cancel"));
+        assertFalse("positive and negative buttons must not be the same word (R2)",
+                confirm.equalsIgnoreCase(cancel));
+    }
+
+    /** Reads one <string name="key">value</string> out of the default English resources. */
+    private static String stringValue(String key) throws Exception {
+        String strings = read("src/main/res/values/strings.xml");
+        int start = strings.indexOf("name=\"" + key + "\"");
+        assertTrue("missing string resource: " + key, start >= 0);
+        int open = strings.indexOf('>', start);
+        int close = strings.indexOf("</string>", open);
+        assertTrue("unterminated string resource: " + key, open > 0 && close > open);
+        return strings.substring(open + 1, close).trim();
+    }
+
     private static String read(String relativeToAppModule) throws Exception {
         return new String(Files.readAllBytes(
                 new File(relativeToAppModule).toPath()), StandardCharsets.UTF_8);
