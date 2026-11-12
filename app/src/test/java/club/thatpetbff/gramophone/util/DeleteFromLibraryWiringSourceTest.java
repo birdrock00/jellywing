@@ -19,8 +19,13 @@ import java.util.List;
  * English-only string rule (R12).
  */
 public class DeleteFromLibraryWiringSourceTest {
-    /** Every user-facing string this feature adds (R12 key list, frozen with .tests.md). */
-    private static final List<String> NEW_KEYS = Arrays.asList(
+    /**
+     * R12's frozen key list, used only as a floor. The contract itself reads the keys out of
+     * the default resources (see deleteFromLibraryKeys), so a tenth delete string added next
+     * month is covered by the same rule; a hand-typed list let one escape (an untracked key
+     * added to values-de stayed green).
+     */
+    private static final List<String> MIN_KEYS = Arrays.asList(
             "action_delete_from_library",   // menu title
             "delete_from_library_title",    // dialog title
             "delete_from_library_body",     // dialog body (destructive copy)
@@ -32,31 +37,48 @@ public class DeleteFromLibraryWiringSourceTest {
             "delete_from_library_failed");  // network/server failure toast
 
     @Test
-    public void testNewStringsLiveInDefaultEnglishOnly() throws Exception {
-        String defaultStrings = read("src/main/res/values/strings.xml");
-        for (String key : NEW_KEYS) {
-            assertTrue("New string key missing from default values/strings.xml: " + key,
-                    defaultStrings.contains("name=\"" + key + "\""));
-        }
+    public void testDeleteStringKeyListIsDerivedNotEmpty() throws Exception {
+        List<String> keys = deleteFromLibraryKeys();
+        assertTrue("the delete_from_library key pattern must match the shipped strings — an "
+                + "empty match makes the English-only rule vacuous", keys.size() >= MIN_KEYS.size());
+        assertTrue("frozen R12 keys missing from default values/strings.xml: " + keys,
+                keys.containsAll(MIN_KEYS));
+    }
 
+    /**
+     * R12: no localized file may carry a delete_from_library* string at all — the 37 locales
+     * fall back to English by design.
+     *
+     * <p>The key names are matched by pattern on each locale file, not by a list copied from
+     * the default resources: a hand-typed list only covers the keys someone remembered, so
+     * adding a new {@code delete_from_library_undo} to values-de stayed green. Asserting "zero
+     * matches in every locale" covers keys that exist only there.
+     */
+    @Test
+    public void testNewStringsLiveInDefaultEnglishOnly() throws Exception {
         File valuesDir = new File("src/main/res");
         File[] localeDirs = valuesDir.listFiles(
                 file -> file.isDirectory() && file.getName().startsWith("values-"));
         assertTrue("Expected localized values-* directories to exist",
                 localeDirs != null && localeDirs.length > 0);
+
+        int localeFilesChecked = 0;
         for (File localeDir : localeDirs) {
             File localeStrings = new File(localeDir, "strings.xml");
             if (!localeStrings.isFile()) {
                 continue;
             }
+            localeFilesChecked++;
             String locale = new String(Files.readAllBytes(localeStrings.toPath()),
                     StandardCharsets.UTF_8);
-            for (String key : NEW_KEYS) {
-                assertFalse("R12: key must not be added to localized " + localeDir.getName()
-                                + " (37 locales fall back to English): " + key,
-                        locale.contains("name=\"" + key + "\""));
-            }
+            List<String> translated = stringKeysMatching(locale, "delete_from_library");
+            assertTrue("R12: " + localeDir.getName() + " must not translate any "
+                            + "delete_from_library* string (English-only by design); found "
+                            + translated.size() + ": " + translated,
+                    translated.isEmpty());
         }
+        assertTrue("the contract must actually read the localized files",
+                localeFilesChecked > 0);
     }
 
     @Test
@@ -336,6 +358,29 @@ public class DeleteFromLibraryWiringSourceTest {
         String goneBlock = util.substring(gone, util.indexOf("break;", gone));
         assertFalse("404 must not purge the cache (plan note 5)",
                 goneBlock.contains("purgeCacheEntry("));
+    }
+
+    /**
+     * Every string key in the default resources whose name carries the feature's
+     * {@code delete_from_library} prefix (which also covers {@code action_delete_from_library}).
+     */
+    private static List<String> deleteFromLibraryKeys() throws Exception {
+        return stringKeysMatching(read("src/main/res/values/strings.xml"), "delete_from_library");
+    }
+
+    /** All {@code <string name="...">} keys in an XML document containing the given fragment. */
+    private static List<String> stringKeysMatching(String xml, String nameFragment) {
+        List<String> keys = new java.util.ArrayList<>();
+        java.util.regex.Matcher m = java.util.regex.Pattern
+                .compile("<string\\s+name=\"([^\"]*)\"")
+                .matcher(xml);
+        while (m.find()) {
+            if (m.group(1).contains(nameFragment)) {
+                keys.add(m.group(1));
+            }
+        }
+        java.util.Collections.sort(keys);
+        return keys;
     }
 
     private static long countCodeLinesWith(String source, String needle) {
