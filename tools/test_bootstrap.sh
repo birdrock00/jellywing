@@ -20,7 +20,7 @@ cd "$ROOT"
 CONFIG=".harness/harness.config.yaml"
 
 # Case list, appended as pairs land; consumed by the all-cases sweep.
-CASES="r1_test_command_runs_unit_tests r2_typecheck_command_compiles_sources r3_lint_command_completes r4_init_script_resolves_and_passes r5_board_project_name_is_jellywing r6_product_constitution_has_no_todo r7_server_read_only_principle_stated r8_glossary_defines_domain_terms r9_project_gate_reports_prerequisites"
+CASES="r1_test_command_runs_unit_tests r2_typecheck_command_compiles_sources r3_lint_command_completes r4_init_script_resolves_and_passes r5_board_project_name_is_jellywing r6_product_constitution_has_no_todo r7_server_read_only_principle_stated r8_glossary_defines_domain_terms r9_project_gate_reports_prerequisites r10_android_test_paths_classified_as_test"
 
 fail() {
     printf 'FAIL %s\n' "$1" >&2
@@ -202,6 +202,24 @@ r9_project_gate_reports_prerequisites() {
     printf '%s\n' "$out" | grep -qi 'jdk 17' \
         || fail "R9 r9_project_gate_reports_prerequisites: gate output does not name the JDK 17 check"
     echo "PASS R9 r9_project_gate_reports_prerequisites"
+}
+
+r10_android_test_paths_classified_as_test() {
+    # R10 — the EFFECTIVE pattern change-size.sh prints (built-ins plus the
+    # configured test_paths; queried, not eyeballed from the YAML) must
+    # classify a representative app/src/androidTest source as test, and must
+    # still classify an app/src/test *Test.java as test (no built-in
+    # regression).
+    re=$(sh .harness/tools/change-size.sh --print-test-re --repo .) \
+        || fail "R10 r10_android_test_paths_classified_as_test: change-size.sh --print-test-re exited non-zero"
+    [ -n "$re" ] || fail "R10 r10_android_test_paths_classified_as_test: --print-test-re printed nothing"
+    if ! printf '%s\n' app/src/androidTest/java/club/thatpetbff/gramophone/ui/AppSessionGuard.java | grep -Eq "$re"; then
+        fail "R10 r10_android_test_paths_classified_as_test: effective pattern does not match app/src/androidTest/.../AppSessionGuard.java — instrumentation books as production"
+    fi
+    if ! printf '%s\n' app/src/test/java/club/thatpetbff/gramophone/util/ServerUrlUtilTest.java | grep -Eq "$re"; then
+        fail "R10 r10_android_test_paths_classified_as_test: effective pattern no longer matches app/src/test/.../ServerUrlUtilTest.java — built-in regression"
+    fi
+    echo "PASS R10 r10_android_test_paths_classified_as_test"
 }
 
 main() {
