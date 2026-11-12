@@ -20,7 +20,7 @@ cd "$ROOT"
 CONFIG=".harness/harness.config.yaml"
 
 # Case list, appended as pairs land; consumed by the all-cases sweep.
-CASES="r1_test_command_runs_unit_tests r2_typecheck_command_compiles_sources r3_lint_command_completes r4_init_script_resolves_and_passes r5_board_project_name_is_jellywing r6_product_constitution_has_no_todo"
+CASES="r1_test_command_runs_unit_tests r2_typecheck_command_compiles_sources r3_lint_command_completes r4_init_script_resolves_and_passes r5_board_project_name_is_jellywing r6_product_constitution_has_no_todo r7_server_read_only_principle_stated"
 
 fail() {
     printf 'FAIL %s\n' "$1" >&2
@@ -130,6 +130,31 @@ r6_product_constitution_has_no_todo() {
     printf '%s\n' "$fm" | grep -qx 'stage: production' \
         || fail "R6 r6_product_constitution_has_no_todo: frontmatter no longer carries stage: production"
     echo "PASS R6 r6_product_constitution_has_no_todo"
+}
+
+r7_server_read_only_principle_stated() {
+    # R7 — inside the extracted '## Principles & hard constraints' section
+    # (not a whole-file grep), some line states both Jellyfin and the server
+    # library being read-only, and that line or its immediate neighbour
+    # states the client-local store. A bullet that only says "be careful
+    # with the server" does not pass.
+    f=".harness/specs/product.md"
+    awk '
+        index($0, "## Principles & hard constraints") == 1 { k = 1; next }
+        k && /^#/ { k = 0 }
+        k { n = NR; lines[n] = $0 }
+        k {
+            low = tolower($0)
+            if (low ~ /jellyfin/ && low ~ /read-only/) { hit = NR }
+        }
+        END {
+            if (!hit) exit 1
+            ctx = tolower(lines[hit] " " (hit < n ? lines[hit + 1] : ""))
+            if (ctx !~ /local store/) exit 1
+        }
+    ' "$f" \
+        || fail "R7 r7_server_read_only_principle_stated: '## Principles & hard constraints' has no Jellyfin read-only line whose line or neighbour states the client-local store"
+    echo "PASS R7 r7_server_read_only_principle_stated"
 }
 
 main() {
