@@ -20,7 +20,7 @@ cd "$ROOT"
 CONFIG=".harness/harness.config.yaml"
 
 # Case list, appended as pairs land; consumed by the all-cases sweep.
-CASES="r1_test_command_runs_unit_tests"
+CASES="r1_test_command_runs_unit_tests r2_typecheck_command_compiles_sources"
 
 fail() {
     printf 'FAIL %s\n' "$1" >&2
@@ -38,6 +38,18 @@ r1_test_command_runs_unit_tests() {
     [ -n "$cmd" ] || fail "R1 r1_test_command_runs_unit_tests: verification.test_command is empty in $CONFIG — nothing to run"
     sh -c "$cmd" || fail "R1 r1_test_command_runs_unit_tests: configured command '$cmd' exited non-zero"
     echo "PASS R1 r1_test_command_runs_unit_tests"
+}
+
+r2_typecheck_command_compiles_sources() {
+    # R2 — verification.typecheck_command, read from the config, must be
+    # non-empty, run from the repository root, and exit 0.
+    # Parse duplicated from r1 by design; T12 (R1/R2/R3) unifies it.
+    cmd=$(sed -n 's/^[[:space:]]*typecheck_command:[[:space:]]*//p' "$CONFIG" | head -n 1)
+    cmd=${cmd%%#*}                                   # trailing YAML comment
+    cmd=$(printf '%s' "$cmd" | sed -e 's/[[:space:]]*$//' -e 's/^"\(.*\)"$/\1/')
+    [ -n "$cmd" ] || fail "R2 r2_typecheck_command_compiles_sources: verification.typecheck_command is empty in $CONFIG — nothing to run"
+    sh -c "$cmd" || fail "R2 r2_typecheck_command_compiles_sources: configured command '$cmd' exited non-zero"
+    echo "PASS R2 r2_typecheck_command_compiles_sources"
 }
 
 main() {
