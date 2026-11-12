@@ -20,7 +20,7 @@ cd "$ROOT"
 CONFIG=".harness/harness.config.yaml"
 
 # Case list, appended as pairs land; consumed by the all-cases sweep.
-CASES="r1_test_command_runs_unit_tests r2_typecheck_command_compiles_sources r3_lint_command_completes r4_init_script_resolves_and_passes"
+CASES="r1_test_command_runs_unit_tests r2_typecheck_command_compiles_sources r3_lint_command_completes r4_init_script_resolves_and_passes r5_board_project_name_is_jellywing"
 
 fail() {
     printf 'FAIL %s\n' "$1" >&2
@@ -90,6 +90,18 @@ r4_init_script_resolves_and_passes() {
     [ -x "$script" ] || fail "R4 r4_init_script_resolves_and_passes: init_script '$script' exists but is not executable"
     "$script" || fail "R4 r4_init_script_resolves_and_passes: init_script '$script' exited non-zero from the repository root"
     echo "PASS R4 r4_init_script_resolves_and_passes"
+}
+
+r5_board_project_name_is_jellywing() {
+    # R5 — the TaskStore parses, its project field reads exactly 'jellywing',
+    # and validate-board.py still accepts it (same invocation init.sh uses).
+    board="state/tasks.json"
+    proj=$(cd .harness && python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["project"])' "$board" 2>/dev/null) \
+        || fail "R5 r5_board_project_name_is_jellywing: .harness/$board does not parse as JSON"
+    [ "$proj" = "jellywing" ] || fail "R5 r5_board_project_name_is_jellywing: project reads '$proj', expected 'jellywing'"
+    ( cd .harness && python3 tools/validate-board.py state/tasks.json store/tasks.schema.json --spec-root . ) >/dev/null \
+        || fail "R5 r5_board_project_name_is_jellywing: validate-board.py rejected .harness/$board"
+    echo "PASS R5 r5_board_project_name_is_jellywing"
 }
 
 main() {
