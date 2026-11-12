@@ -1,6 +1,8 @@
 package club.thatpetbff.gramophone.util;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertTrue;
 
 import org.junit.Test;
 
@@ -23,5 +25,15 @@ public class LibraryDeleteOutcomeTest {
 
         assertEquals("A 401 from DELETE /Items/{id} must map to PERMISSION_DENIED (R5)",
                 DeleteOutcome.PERMISSION_DENIED, LibraryDeleteUtil.mapOutcome(refused));
+    }
+
+    @Test
+    public void testStatus404MapsToAlreadyGone() {
+        org.jellyfin.apiclient.model.net.HttpException missing =
+                new org.jellyfin.apiclient.model.net.HttpException("VolleyError: ", null);
+        missing.setStatusCode(404);
+
+        assertEquals("A 404 must map to ALREADY_GONE — its own toast, not a generic failure (R6)",
+                DeleteOutcome.ALREADY_GONE, LibraryDeleteUtil.mapOutcome(missing));
     }
 }

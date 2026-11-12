@@ -132,6 +132,27 @@ public class DeleteFromLibraryWiringSourceTest {
                 util.contains("playSongAt("));
     }
 
+    /**
+     * R6: the 404 path performs the queue/refresh cleanup with its own toast and never
+     * claims this action deleted anything.
+     */
+    @Test
+    public void testAlreadyGoneRunsCleanupWithoutSuccessClaim() throws Exception {
+        String util = read("src/main/java/club/thatpetbff/gramophone/util/LibraryDeleteUtil.java");
+        int start = util.indexOf("case ALREADY_GONE:");
+        assertTrue("handleOutcome must branch on ALREADY_GONE (R6)", start >= 0);
+        int end = util.indexOf("case ", start + "case ALREADY_GONE:".length());
+        String block = util.substring(start, end > 0 ? end : util.length());
+        assertTrue("404 must use its own already-gone toast (R6)",
+                block.contains("R.string.delete_from_library_gone"));
+        assertFalse("404 must not show the success toast (R6: no deletion claim)",
+                block.contains("R.string.delete_from_library_success"));
+        assertTrue("404 still drops the dead entry from the queue (R6/R4)",
+                block.contains("removeFromQueueAndAdvance("));
+        assertTrue("404 still refreshes Favorites (R6/R9)",
+                block.contains("FavoritesStore.notifyChanged()"));
+    }
+
     private static long countCodeLinesWith(String source, String needle) {
         return java.util.Arrays.stream(source.split("\n"))
                 .map(String::trim)

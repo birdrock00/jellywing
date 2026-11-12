@@ -75,6 +75,11 @@ public final class LibraryDeleteUtil {
         if (status != null && status == 401) {
             return DeleteOutcome.PERMISSION_DENIED;
         }
+        if (status != null && status == 404) {
+            // R6: the item is genuinely not on the server anymore — its own outcome with
+            // its own toast and the R4/R9 client cleanup (no success claim, plan note 5).
+            return DeleteOutcome.ALREADY_GONE;
+        }
         return DeleteOutcome.SERVER_FAILURE;
     }
 
