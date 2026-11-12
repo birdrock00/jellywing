@@ -4,7 +4,8 @@
 > fails the feature if any `R-id` lacks a passing test. E2E rows run under the QA protocol
 > below — destructive by design, restored every cycle.
 >
-> **Coverage as it actually stands (corrected 2026-11-12 after Reviewer round 1, blocker B1).**
+> **Coverage as it actually stands (third pass, 2026-11-12; reconciled with the nine round-2
+> commits after Reviewer F8).**
 > An earlier revision of this matrix named five E2E methods — `e2e1_happyPathCycle`,
 > `e2e2_playlistCleanAfterScan`, `e2e3_alreadyGoneSecondDelete`, `e2e5_noSessionReportsForDeadId`,
 > `e2e6_cachedSongPurged` — and treated `tools/qa-delete-cycle.sh` as an existing driver.
@@ -23,37 +24,61 @@
 >   claim (R10) are unverified. What runs today for those requirements is JVM *source
 >   contracts* only — text assertions about `LibraryDeleteUtil.java` — listed row-by-row below
 >   with exactly what each does and does not pin.
-> - Three safety/content properties that the Reviewer found unpinned by mutation (**R2**
->   "no request before the positive button", **R2** destructive copy content, **R9**
->   SUCCESS-branch Favorites refresh) had **no executed coverage at all** as of round 1: each
->   surviving mutation left the 135-test gate green. They are recorded as `Exists? NO` rows
->   below so the history and the gap are both visible.
+> - Three safety/content properties that survived mutation in round 1 (**R2** "no request before
+>   the positive button", **R2** destructive copy content, **R9** SUCCESS-branch Favorites refresh)
+>   **have executed JVM coverage today** — `DeleteFromLibraryDialogSourceTest` (4 tests) and the
+>   SUCCESS-block-scoped reading of `testSuccessOutcomeRunsQueueDropAndFavoritesRefresh`. The
+>   Reviewer re-ran the round-1 mutants against them and each is now RED. Their round-1 `Exists? NO`
+>   rows are retired below; the history stays in *History* at the end of "What actually executes".
+>
+> - **A green instrumented run is not evidence.** Instrumented and E2E legs `assumeTrue`-skip when
+>   there is no live app session or no driver arguments, and both runners report that as success:
+>   `am instrument` printed `OK (2 tests)` and logcat printed `run finished: 2 tests, 0 failed,
+>   0 ignored` whether or not a leg executed. Four of the six device legs in this matrix skipped on
+>   the 2026-11-12 run, including the only E2E method that exists, which has **never executed**.
+>   See **G4** and the ledger in that section. **An ignored test is a missing test, and this
+>   harness's runners do not distinguish the two.**
 
 | R-id | Behavior | Test (file::name) | Type | Exists? | Status |
 |---|---|---|---|---|---|
-| R1 | Overflow shows **Delete from library** iff a server-backed song is current | `app/src/androidTest/java/club/thatpetbff/gramophone/ui/DeleteMenuItemVisibilityTest.java` (2 tests: shown with a server-backed song current, hidden on an empty queue) | instrumented (**not** in the unit gate — see G1) | yes | ⬜ |
+| R1 | Overflow hides **Delete from library** when no song is current | `app/src/androidTest/java/club/thatpetbff/gramophone/ui/DeleteMenuItemVisibilityTest.java::deleteItemHiddenWhenNoSongIsCurrent` — the only device leg of R1 that executed on 2026-11-12 (per-test `started:`/`finished:` in logcat) | instrumented (**not** in the unit gate — G1) | yes (leg executed) | ⬜ |
+| R1 | Overflow **shows** the item when a server-backed song is current | `app/src/androidTest/java/club/thatpetbff/gramophone/ui/DeleteMenuItemVisibilityTest.java::deleteItemShownWhenServerBackedSongIsCurrent` — **exists, self-skips without a live Jellyfin session (`assumption failed: Need an existing real Jellyfin session`) — NOT RUN**; the runner still printed `OK (2 tests)` (Reviewer F6, G4) | instrumented (**not** in the unit gate — G1) | yes, **self-skips — NOT RUN** | ⬜ |
 | R1 | Menu entry statics: id present, `showAsAction="never"`, title from a string resource | `app/src/test/java/club/thatpetbff/gramophone/util/DeleteFromLibraryWiringSourceTest.java::testMenuItemPresent` | unit (source contract) | yes | ⬜ |
-| R2 | Confirm dialog precedes any network; Cancel is a no-op | `app/src/androidTest/java/club/thatpetbff/gramophone/ui/DeleteConfirmDialogTest.java::selectDeleteOpensDestructiveConfirmDialogAndCancelIsNoop` + `app/src/androidTest/java/club/thatpetbff/gramophone/ui/DeleteFromLibraryE2eTest.java::e2e4_cancelNoop` | instrumented + e2e (non-destructive; **not** in the unit gate — G1) | yes | ⬜ |
+| R2 | Confirm dialog precedes any network; Cancel is a no-op (device) | `app/src/androidTest/java/club/thatpetbff/gramophone/ui/DeleteConfirmDialogTest.java::selectDeleteOpensDestructiveConfirmDialogAndCancelIsNoop` — **exists, self-skips without a live Jellyfin session (`assumption failed: Need an existing real Jellyfin session`) — NOT RUN** on 2026-11-12, while `am instrument` printed OK (Reviewer F6, G4) | instrumented (non-destructive; **not** in the unit gate — G1) | yes, **self-skips — NOT RUN** | ⬜ |
+| R2 | Cancel leaves the item on the server and issues no DELETE (E2E) | `app/src/androidTest/java/club/thatpetbff/gramophone/ui/DeleteFromLibraryE2eTest.java::e2e4_cancelNoop` — **exists but has NEVER executed**: it `assumeTrue`s on driver args (`E2E-4 needs driver args (qa_server/qa_token/qa_user/qa_item)`) supplied by `tools/qa-delete-cycle.sh`, which does not exist (G2). Non-execution reads as `0 ignored` (G4) | e2e (non-destructive; **not** in the unit gate — G1) | yes, **self-skips — NOT RUN** | ⬜ |
+| R1 | Gate reads the current song and requires a **non-blank server id** (not merely a non-null song), and drives `setVisible` | `app/src/test/java/club/thatpetbff/gramophone/util/DeleteFromLibraryWiringSourceTest.java::testVisibilityGateRequiresAServerBackedSongId` — executed JVM source contract on the helper body; kills all three round-1-surviving shapes (always-show, non-null-only, blank-id accepted). **Bound R2-B1 (open): the pin is textual, so `deleteItem.setVisible(serverBacked \|\| true)` — always visible, every token present — stayed GREEN in the round-2 campaign; C-A.5 (assert the exact expression `setVisible(serverBacked)`) had not landed as of `8e1ff1ee` and has no mutation evidence — not done** | unit (source contract) | yes | ⬜ |
+| R1 | Both player themes apply the gate on menu inflate **and** on current-song change | `app/src/test/java/club/thatpetbff/gramophone/util/DeleteFromLibraryWiringSourceTest.java::testBothPlayerThemesApplyTheGateOnInflateAndSongChange` — executed; dropping the call from either `CardPlayerFragment` or `FlatPlayerFragment` goes RED | unit (source contract) | yes | ⬜ |
 | R2 | Handler opens the dialog and never calls the API directly | `app/src/test/java/club/thatpetbff/gramophone/util/DeleteFromLibraryWiringSourceTest.java::testHandlerOpensDialogNotApiDirectly` — reads only `app/src/main/java/club/thatpetbff/gramophone/fragments/player/AbsPlayerFragment.java` | unit (source contract) | yes | ⬜ |
-| R2 | Opening the dialog never fires the delete — the request sits inside the positive-button callback | **NOT YET WRITTEN — the Builder must author it in `app/src/test/java/club/thatpetbff/gramophone/util/DeleteFromLibraryWiringSourceTest.java`** as a source contract on `app/src/main/java/club/thatpetbff/gramophone/dialogs/DeleteFromLibraryDialog.java`. Reviewer B2: moving `deleteFromLibrary(...)` into `onCreateDialog` keeps the whole executed gate green, and no executed test reads that dialog file at all | unit (source contract) | **NO** | ⬜ |
-| R2 | Destructive copy warns in plain words (leaves the server, every playlist holding it, cannot be undone) | **NOT YET WRITTEN — the Builder must author the content assertion in `app/src/test/java/club/thatpetbff/gramophone/util/DeleteFromLibraryWiringSourceTest.java`** (Reviewer B3: replacing `delete_from_library_body` with "Remove this song?" stays green today; the only existing check is that the *key* exists, which is R12's row, not this one) | unit (source contract) | **NO** | ⬜ |
+| R2/R3 | Opening the dialog never fires the delete — the request sits **only** inside the positive-button callback | `app/src/test/java/club/thatpetbff/gramophone/util/DeleteFromLibraryDialogSourceTest.java::testConstructingTheDialogIssuesNoRequest` + `#testDeleteCallSitsInsideOnPositive` — executed source contract on `app/src/main/java/club/thatpetbff/gramophone/dialogs/DeleteFromLibraryDialog.java`, split into construction vs. `onPositive` vs. everything-outside regions. Round-1 B2 is RED today in **both** shapes: moving the call into `onCreateDialog`, and leaving it in `onPositive` *and* adding it to `onCreateDialog` | unit (source contract) | yes | ⬜ |
+| R2 | Destructive copy warns in plain words (leaves the server, permanent, every playlist holding it, cannot be undone) | `app/src/test/java/club/thatpetbff/gramophone/util/DeleteFromLibraryDialogSourceTest.java::testConfirmCopyCarriesTheThreeWarnings` — executed **content** assertion over `delete_from_library_body`; Reviewer B3's mutant (`delete_from_library_body` → "Remove this song?") is RED here, not merely on key existence | unit (source contract) | yes | ⬜ |
+| R2 | Confirm and Cancel are distinct explicit verbs (delete / cancel), not a generic OK | `app/src/test/java/club/thatpetbff/gramophone/util/DeleteFromLibraryDialogSourceTest.java::testConfirmAndCancelButtonsAreDistinctVerbs` — executed | unit (source contract) | yes | ⬜ |
 | R3 | Exactly one `DeleteItem` call site, through the existing apiclient, no hand-rolled HTTP | `app/src/test/java/club/thatpetbff/gramophone/util/DeleteFromLibraryWiringSourceTest.java::testUtilIssuesSingleStockDeleteCall` | unit (source contract) | yes | ⬜ |
 | R3 | One `DELETE /Items/{id}` actually reaches the server per confirm, and the item 404s afterwards | **NOT YET WRITTEN — the QA round must author `e2e1_happyPathCycle` in `app/src/androidTest/java/club/thatpetbff/gramophone/ui/DeleteFromLibraryE2eTest.java`**, wrapped by the QA driver (also NOT YET WRITTEN; see G2). R3 has no device or server-side test today | e2e | **NO** | ⬜ |
-| R4 | Success toast; queue drops the deleted entry and advances to the next track | `app/src/test/java/club/thatpetbff/gramophone/util/DeleteFromLibraryWiringSourceTest.java::testSuccessOutcomeRunsQueueDropAndFavoritesRefresh` — **weak as written**: whole-file `contains(...)`, which the `ALREADY_GONE` branch also satisfies, so it does not pin the success path (Reviewer B4). Must be scoped to the `SUCCESS` block | unit (source contract) | yes (SUCCESS-scoping pending) | ⬜ |
+| R4 | Success toast; queue drops the deleted entry and advances to the next track | `app/src/test/java/club/thatpetbff/gramophone/util/DeleteFromLibraryWiringSourceTest.java::testSuccessOutcomeRunsQueueDropAndFavoritesRefresh` — **SUCCESS-block-scoped since `9fb1f19b`**: it reads the `case SUCCESS:` … `break;` region and asserts the success toast, `removeFromQueueAndAdvance(` and `FavoritesStore.notifyChanged()` inside it. Reviewer B4 is RED, and the kill is independent of R6: removing `notifyChanged()` from `ALREADY_GONE` only reddens `testAlreadyGoneRunsCleanupWithoutSuccessClaim` | unit (source contract) | yes | ⬜ |
+| R4 | Nothing success-shaped happens **before** the request is issued (no early toast, no early queue edit, no early purge, no early Favorites refresh) | `app/src/test/java/club/thatpetbff/gramophone/util/DeleteFromLibraryWiringSourceTest.java::testInFlightGuardWrapsRequestAndReleasesOnOutcome` pins the region before `DeleteItem(` against `handleOutcome(` and `DeleteOutcome.SUCCESS` — which is what kills the optimistic-success mutant (the Reviewer re-ran it with only this test in the run: RED on its own). **Round-2 bound (Reviewer F7): a pre-request `toast(delete_from_library_success)` or `removeFromQueueAndAdvance(itemId)` was GREEN, because the region named only `handleOutcome(` and `DeleteOutcome.SUCCESS`. C-A.2 widens that region to every success-side effect and landed at `17d91a00`, but no Reviewer has re-run F7's two survivors against it — treat as IN PROGRESS, not done** | unit (source contract) | yes (C-A.2 written, **unverified**) | ⬜ |
+| R4 | The cleanup helper the SUCCESS branch calls: drop **every** entry naming the deleted item, know whether the removed one was current, start the track now at that index, and stop cleanly when the queue empties | `app/src/test/java/club/thatpetbff/gramophone/util/DeleteFromLibraryWiringSourceTest.java::testRemoveFromQueueAndAdvanceHandlesCurrentLoneAndLaterEntries` — executed source contract on the `removeFromQueueAndAdvance` body; RED when only the first entry is removed and RED when the lone-entry `clearQueue()` branch is removed. **Its round-2 form did not pin the removal ORDER (Reviewer F1)** — see the next row | unit (source contract) | yes | ⬜ |
+| R4 | A song queued twice yields **every** one of its queue entries; a single/absent entry is unchanged | `app/src/test/java/club/thatpetbff/gramophone/util/LibraryDeleteDuplicateQueueTest.java::testEveryEntryOfATwiceQueuedSongIsFound` + `#testSingleAndAbsentEntriesAreUnchanged` — executed JVM **behavior** tests on `LibraryDeleteUtil.positionsOfItem` (the lookup; `found.add(0, i)` ordering included) | unit | yes | ⬜ |
+| R4 | Those entries are removed **highest-index-first**, which is the only order that keeps the later indices valid | Round 2 proved nothing here: mutating the loop to ascending left the gate GREEN (`MusicPlayerRemote.removeFromQueue`'s `0 <= p < size()` guard silently refuses the out-of-range index and a dead entry survives — Reviewer F1), because the round-2 RED was the *lookup*, not the order. **C-A.1 landed at `e88b33fa`** — `LibraryDeleteUtil.removalOrder(...)` extracted plus `app/src/test/java/club/thatpetbff/gramophone/util/LibraryDeleteDuplicateQueueTest.java::testRemovalOrderIsHighestIndexFirst` (`[1,3] → [3,1]`, `[0] → [0]`, `[] → []`). **UNVERIFIED: no Reviewer run shows the ascending mutant RED against it — treat as IN PROGRESS, not done** | unit | yes (new, **unverified**) | ⬜ |
 | R4 | Lone-entry queue: after delete, playback stops cleanly and no surface presents the dead item | **NOT YET WRITTEN — the QA round must author the lone-entry leg of `e2e1_happyPathCycle` in `app/src/androidTest/java/club/thatpetbff/gramophone/ui/DeleteFromLibraryE2eTest.java`** (Reviewer: the code reads correct; no test of any kind covers it) | e2e | **NO** | ⬜ |
 | R4 | After a delete and a library scan, every playlist that held the item no longer lists it | **NOT YET WRITTEN — the QA round must author `e2e2_playlistCleanAfterScan` in `app/src/androidTest/java/club/thatpetbff/gramophone/ui/DeleteFromLibraryE2eTest.java`** (the stale-`.m3u8` leg of limitation L4) | e2e | **NO** | ⬜ |
 | R5 | 401 → permission-refusal toast naming the fix; nothing claimed or changed | `app/src/test/java/club/thatpetbff/gramophone/util/LibraryDeleteOutcomeTest.java::testStatus401MapsToPermissionDenied` — **forced status; see limitation L1** | unit | yes | ⬜ |
 | R6 | 404 → distinct already-gone toast + client cleanup, no deletion claim | `app/src/test/java/club/thatpetbff/gramophone/util/LibraryDeleteOutcomeTest.java::testStatus404MapsToAlreadyGone` + `app/src/test/java/club/thatpetbff/gramophone/util/DeleteFromLibraryWiringSourceTest.java::testAlreadyGoneRunsCleanupWithoutSuccessClaim` (branch-scoped) | unit | yes | ⬜ |
 | R6 | A second delete of the same id on device really toasts *already gone* and keeps the item out of the queue | **NOT YET WRITTEN — the QA round must author `e2e3_alreadyGoneSecondDelete` in `app/src/androidTest/java/club/thatpetbff/gramophone/ui/DeleteFromLibraryE2eTest.java`** (the E2E half of the round-1 T6a task was never written; only its unit leg ran) | e2e | **NO** | ⬜ |
 | R7 | Transport / other-status failure → named failure, nothing claimed | `app/src/test/java/club/thatpetbff/gramophone/util/LibraryDeleteOutcomeTest.java::testTransportErrorMapsToNetworkFailure`, `#testOtherStatusMapsToServerFailure`, `app/src/test/java/club/thatpetbff/gramophone/util/DeleteFromLibraryWiringSourceTest.java::testFailureOutcomesChangeNothingButToast` | unit | yes | ⬜ |
-| R8 | In-flight delete absorbs repeat activations; one request only | `app/src/test/java/club/thatpetbff/gramophone/util/LibraryDeleteOutcomeTest.java::testSecondRequestIgnoredWhileInFlight` + `app/src/test/java/club/thatpetbff/gramophone/util/DeleteFromLibraryWiringSourceTest.java::testInFlightGuardWrapsRequestAndReleasesOnOutcome` — **gap**: neither covers a *synchronous* throw from the API call, which leaves the latch armed for the life of the process (Reviewer M-1) | unit | yes | ⬜ |
-| R9 | Success path refreshes Favorites without user action | `app/src/test/java/club/thatpetbff/gramophone/util/DeleteFromLibraryWiringSourceTest.java::testSuccessOutcomeRunsQueueDropAndFavoritesRefresh` — **does not pin R9 today**: the assertion is whole-file, so removing `FavoritesStore.notifyChanged()` from the `SUCCESS` branch alone stays green (Reviewer B4 / mutation M12). Must be scoped to the `SUCCESS` block | unit (source contract) | yes (SUCCESS-scoping pending) | ⬜ |
+| R8 | In-flight delete absorbs repeat activations; one request only; no outcome dispatched before the request | `app/src/test/java/club/thatpetbff/gramophone/util/LibraryDeleteOutcomeTest.java::testSecondRequestIgnoredWhileInFlight` + `app/src/test/java/club/thatpetbff/gramophone/util/DeleteFromLibraryWiringSourceTest.java::testInFlightGuardWrapsRequestAndReleasesOnOutcome` (latch arms before `DeleteItem(`, every terminal outcome releases it, and no outcome/`SUCCESS` may appear in the pre-request region) | unit | yes | ⬜ |
+| R8 | A **synchronous** throw from the API call is contained and leaves the latch free (otherwise that song can never be deleted again for the life of the process) | `app/src/test/java/club/thatpetbff/gramophone/util/LibraryDeleteSyncThrowLatchTest.java::testSynchronousThrowReleasesTheLatchAndNeverEscapes` + `#testADeleteAfterAContainedThrowIsNotIgnored` — executed JVM behavior tests (nothing binds an `ApiClient` on the JVM, which reproduces the shape exactly). Reviewer M-1 is RED in both discriminating shapes: drop the `try/catch`, and keep the `catch` but delete `endDelete(itemId)` from it | unit | yes | ⬜ |
+| R9 | Success path refreshes Favorites without user action | `app/src/test/java/club/thatpetbff/gramophone/util/DeleteFromLibraryWiringSourceTest.java::testSuccessOutcomeRunsQueueDropAndFavoritesRefresh` — **SUCCESS-block-scoped since `9fb1f19b`**; "SUCCESS must refresh Favorites without user action (R9)" reads the `SUCCESS` block only, so removing `FavoritesStore.notifyChanged()` from that branch alone is RED (round-1 B4 / M12). The neighbouring `ALREADY_GONE` branch has its own separate RED in `testAlreadyGoneRunsCleanupWithoutSuccessClaim`, which is what makes the two kills independent | unit (source contract) | yes | ⬜ |
 | R9 | The Favorites tab visibly refreshes on device after a real delete | **NOT YET WRITTEN — the QA round must author the Favorites-tab leg of `e2e1_happyPathCycle` in `app/src/androidTest/java/club/thatpetbff/gramophone/ui/DeleteFromLibraryE2eTest.java`** | e2e | **NO** | ⬜ |
 | R10 | Success clears a suppression guard that names the deleted id, and the advance is sequenced before the clear | `app/src/test/java/club/thatpetbff/gramophone/util/DeleteFromLibraryWiringSourceTest.java::testSuccessClearsStaleSuppressionGuardOnlyForTheDeletedId` (SUCCESS-block-scoped; the inverted sequencing does go RED) | unit (source contract) | yes | ⬜ |
 | R10 | No later `Sessions/Playing/Progress` report names the deleted id, and the restart shows the guard pref cleared | **NOT YET WRITTEN — the QA round must author `e2e5_noSessionReportsForDeadId` in `app/src/androidTest/java/club/thatpetbff/gramophone/ui/DeleteFromLibraryE2eTest.java`**, which needs the QA driver (G2) for its request-log leg. R10 has no device or server-side test today | e2e | **NO** | ⬜ |
-| R11 | Success purges the Room `cache` row and the cached files; un-cached purge is a no-op | `app/src/androidTest/java/club/thatpetbff/gramophone/database/CachePurgeOnDeleteInstrumentedTest.java` (2 tests; asserts actual file removal, Reviewer ran them on the emulator: OK) + `app/src/test/java/club/thatpetbff/gramophone/util/DeleteFromLibraryWiringSourceTest.java::testCachePurgeIsSuccessOutcomeOnly` | instrumented (**not** in the unit gate — G1) + unit | yes | ⬜ |
+| R11 | Success purges the Room `cache` row **and the three cached file locations** (`<cacheRoot>/<id>`, `<cacheRoot>/download/<id>`, `MusicUtil.getFileUri(song)`); un-cached purge is a no-op | `app/src/androidTest/java/club/thatpetbff/gramophone/database/CachePurgeOnDeleteInstrumentedTest.java::purgeRemovesCacheRowAndCachedFiles` + `#purgeOfUncachedItemIsANoOp` — **executed** on the emulator 2026-11-12 via `install -r` + `am instrument` (per-test logcat lines, no assumption skip), and each of the three file locations is RED under its own device mutant. **But this class is the ONLY pin for the `File.delete()` calls: delete all three lines and `./gradlew testDebugUnitTest` stays GREEN (Reviewer F2). R11's file removal therefore contributes nothing to the gate and is a C-B must-run leg** | instrumented (**not** in the unit gate — G1) | yes (device-only pin) | ⬜ |
+| R11 | The purge is keyed on the deleted id, does not scan the songs table on the UI thread, and logs a swallowed failure | `app/src/test/java/club/thatpetbff/gramophone/util/DeleteFromLibraryWiringSourceTest.java::testCachePurgeIsNarrowAndLogsItsCatch` — executed source contract on the `purgeCacheEntry` body (comments stripped, so prose cannot satisfy it); RED on a `getSongs()` scan and RED on a silent `catch (Exception ignored)` | unit (source contract) | yes | ⬜ |
+| R11 | A **missing `songs` row must not skip** the Room `cache` row (the delete is unconditional) | Round 2 proved nothing here: gating `cacheDao().deleteFromCache(itemId)` on the `song != null` guard was GREEN in the JVM gate **and** in the device class — no fixture inserted a cache row without a songs row (Reviewer F3). **C-A.3 landed at `7a3743c8`** as `app/src/androidTest/java/club/thatpetbff/gramophone/database/CachePurgeOnDeleteInstrumentedTest.java::purgeRemovesCacheRowWhenTheSongsRowIsAbsent` (insert a `cache` row, delete the matching `songs` row, purge, assert `isCached` false). **UNVERIFIED and NOT RUN: it has never been executed on a device (it joins C-B's must-run list, G4/G5) and no Reviewer run shows the `if (song == null) return;` mutant RED — treat as IN PROGRESS, not done** | instrumented (**not** in the unit gate — G1) | yes (new, **NOT RUN**) | ⬜ |
+| R11 | The device class is self-restoring (a broken run must fail on an R11 assertion, not on a stale fixture) | **NOT PROVEN today**: the audio fixture path comes from `getFileUri(song)` (artist/album/disc/track/title/container, not the unique id), so it is the same path every run; a run whose purge is broken leaves the file and every later run fails at `assertTrue("fixture file must be creatable")` — the Reviewer hit exactly this. **C-A.4 (delete any stale fixture before `createNewFile()`, clean up the three paths plus the inserted rows in `finally`) landed at `8e1ff1ee`. UNVERIFIED and NOT RUN: the Reviewer's C-A.4 acceptance (break the purge once, run the class twice, the second run must fail on an R11 assertion) has not been performed on a device — treat as IN PROGRESS, not done** | instrumented (**not** in the unit gate — G1) | yes (new, **NOT RUN**) | ⬜ |
+| R11 | Purge runs on the success outcome only (not on 401/404/transport failure) | `app/src/test/java/club/thatpetbff/gramophone/util/DeleteFromLibraryWiringSourceTest.java::testCachePurgeIsSuccessOutcomeOnly` | unit (source contract) | yes | ⬜ |
 | R11 | Cached state is gone in-app and on disk after a real delete cycle on the sacrificial track | **NOT YET WRITTEN — the QA round must author `e2e6_cachedSongPurged` in `app/src/androidTest/java/club/thatpetbff/gramophone/ui/DeleteFromLibraryE2eTest.java`** (the E2E half of the round-1 T10a task was never written; only the instrumented leg ran) | e2e | **NO** | ⬜ |
-| R12 | New strings exist in default English only; locales untouched | `app/src/test/java/club/thatpetbff/gramophone/util/DeleteFromLibraryWiringSourceTest.java::testNewStringsLiveInDefaultEnglishOnly` — **gap**: the key list is a hand-typed literal, so a new delete string added to a locale escapes the contract (Reviewer M-4); derive it from the `delete_from_library` name pattern | unit (source contract) | yes | ⬜ |
+| R12 | New strings exist in default English only; locales untouched — for **any** `delete_from_library*` key, including ones nobody remembered | `app/src/test/java/club/thatpetbff/gramophone/util/DeleteFromLibraryWiringSourceTest.java::testNewStringsLiveInDefaultEnglishOnly` — key names are now **derived by pattern** (`<string name="…">` matched against `delete_from_library`) since `f68d6eea`, with a non-vacuity floor (`localeFilesChecked > 0`; 33 locale files today). Reviewer M-4's mutant (untracked `delete_from_library_undo` added to `values-de`) is RED; the `delete_playlist_x` control stays GREEN, which is correct — substring, not prefix, on purpose. **Remaining hole (Reviewer F5): the anti-vacuity floor covers the helper and the default-resources call site, not the locale loop's own argument, so pointing the locale scan at a fragment that matches nothing is GREEN. **C-A.5 was still in flight (uncommitted) at `8e1ff1ee`: no shared `KEY_FRAGMENT` constant, no non-empty assert inside the locale test, and no exact-expression `setVisible(serverBacked)` assertion. Open until the round-3 review shows F5's and R2-B1's mutants RED** | unit (source contract) | yes (F5 hole open) | ⬜ |
+| R12 | The derived key list is non-empty and holds all nine frozen keys (the pattern may not match nothing) | `app/src/test/java/club/thatpetbff/gramophone/util/DeleteFromLibraryWiringSourceTest.java::testDeleteStringKeyListIsDerivedNotEmpty` — executed; mutating the shared matcher so it matches nothing is RED ("an empty match makes the English-only rule vacuous") | unit (source contract) | yes | ⬜ |
 
 ## What actually executes, and where the gaps are
 
@@ -62,9 +87,12 @@
   `instrumented` row above (`DeleteMenuItemVisibilityTest`, `DeleteConfirmDialogTest`,
   `DeleteFromLibraryE2eTest`, `CachePurgeOnDeleteInstrumentedTest`) requires an explicit
   `am instrument` / `connectedAndroidTest` run and contributes nothing to a green gate. A
-  requirement whose only rows are instrumented is therefore *unpinned* in the gate: R1's
-  visibility helper can be forced to always show the item and the gate stays green
-  (Reviewer M-5).
+  requirement whose only rows are instrumented is therefore *unpinned* in the gate. Round 1's
+  instance of that (M-5: forcing R1's helper to always show the item) is now closed by the executed
+  JVM contracts `testVisibilityGateRequiresAServerBackedSongId` and
+  `testBothPlayerThemesApplyTheGateOnInflateAndSongChange`; what still survives is the textual
+  bound **R2-B1** (`deleteItem.setVisible(serverBacked || true)` keeps every required token and
+  stays GREEN — C-A.5, which had not landed as of this pass), and R11's file removals per **G5** below.
 - **G2 — the QA driver does not exist.** `tools/qa-delete-cycle.sh` is declared `create:` in
   `.plan.md` and has never been written, so the P0→P8 backup/restore protocol below cannot be
   run today by anyone. It is QA-round work, and until it exists every destructive E2E case is
@@ -74,12 +102,73 @@
   the end-to-end claim is `Exists? NO`, and the rows that exist are source-text contracts whose
   weakness is named in the row. Their verification path runs through `e2e1`/`e2e2`/`e2e5` plus
   the driver — real work still to be authored under P0→P8.
+- **G4 — instrumented and E2E legs self-skip, and both runners call it OK (Reviewer F6). Read this
+  before believing any device row above.** These legs open with `assumeTrue`/`Assume` guards (live
+  app session; driver args), and a skipped leg is *silently* reported as success:
+  `am instrument` printed `OK (2 tests)` and logcat printed `run finished: 2 tests, 0 failed,
+  0 ignored` on 2026-11-12 whether a leg ran or bailed.
+
+  **Rule for this feature and every later one: an ignored test is a missing test, and this
+  harness's runners do not distinguish the two.** A green instrumented (or E2E, or driver) run is
+  evidence only if it shows **per-test `started:`/`finished:` lines** for the leg being claimed and
+  **no `assumption failed` line** anywhere in that leg's output; otherwise the leg is recorded
+  `NOT RUN`, never as a pass. C-B in the round-2 review makes this an explicit evidence requirement.
+
+  Device-ledger as actually observed 2026-11-12 (Reviewer's `install -r` + `am instrument -w`
+  campaign; AGP `connectedAndroidTest` forbidden because it uninstalls the app and wipes the
+  session):
+
+  | Device leg | Executed? |
+  |---|---|
+  | `CachePurgeOnDeleteInstrumentedTest::purgeRemovesCacheRowAndCachedFiles` | **ran** (per-test logcat, no skip) |
+  | `CachePurgeOnDeleteInstrumentedTest::purgeOfUncachedItemIsANoOp` | **ran** |
+  | `DeleteMenuItemVisibilityTest::deleteItemHiddenWhenNoSongIsCurrent` | **ran** |
+  | `DeleteMenuItemVisibilityTest::deleteItemShownWhenServerBackedSongIsCurrent` | **NOT RUN** — `assumption failed: Need an existing real Jellyfin session` |
+  | `DeleteConfirmDialogTest::selectDeleteOpensDestructiveConfirmDialogAndCancelIsNoop` | **NOT RUN** — same assumption failure |
+  | `DeleteFromLibraryE2eTest::e2e4_cancelNoop` | **NOT RUN, and has never run in the feature's history** — `E2E-4 needs driver args (qa_server/qa_token/qa_user/qa_item)`, which come from `tools/qa-delete-cycle.sh` (G2). The one E2E method that exists has zero executed runs |
+
+  So of the six device legs this matrix names, **three executed and three did not**, and the raw
+  runner output for those two classes was `OK` in both cases. (Two legs added after that run —
+  `purgeRemovesCacheRowWhenTheSongsRowIsAbsent` and the C-A.4 self-restoring fixture behaviour, both
+  in `CachePurgeOnDeleteInstrumentedTest` — have **never executed** on any device.) R1's *shown-when-server-backed*
+  property therefore has no executed device proof; its only executed pins are the JVM source
+  contracts, which carry the R2-B1 bound.
+
+- **G5 — some device-only pins are invisible to the gate in a second way (Reviewer F2).** Beyond
+  G1's "the gate does not run instrumented classes", R11's three `File.delete()` calls can be
+  deleted outright and `./gradlew testDebugUnitTest` stays GREEN: the JVM contract for the purge
+  (`testCachePurgeIsNarrowAndLogsItsCatch`, `testCachePurgeIsSuccessOutcomeOnly`) pins cost,
+  success-outcome scoping and logging — **not file removal**. Only `CachePurgeOnDeleteInstrumentedTest`
+  pins them, on device, so that class is on C-B's must-run list and R11 cannot ship on the strength
+  of the unit gate.
+
+- **IN PROGRESS THIS ROUND — C-A.1 → C-A.5. None of them is done, because none has Reviewer mutation
+  evidence.** As observed at `8e1ff1ee` (2026-11-12 ~21:26 UTC; the Builder was committing `app/**`
+  while this matrix was edited, so these shas are a dated observation, not a claim about the tree a
+  later reader will find): **C-A.1** removal-order pin, `e88b33fa` (F1) · **C-A.2** pre-request region
+  widened to every success-side effect — `delete_from_library_success`, `removeFromQueueAndAdvance(`,
+  `purgeCacheEntry(`, `FavoritesStore.notifyChanged(`, `clearSuppressionIfOurs(` — `17d91a00` (F7) ·
+  **C-A.3** instrumented absent-`songs`-row purge leg, `7a3743c8` (F3) · **C-A.4** self-restoring R11
+  fixture, `8e1ff1ee` (F4) · **C-A.5** shared `KEY_FRAGMENT` + non-empty assert inside the locale test
+  + exact-expression `setVisible(serverBacked)` (F5, R2-B1) — **uncommitted at that commit**.
+  **Operative rule for the QA round and the Reviewer: a C-A item counts as coverage only when the
+  review shows its named mutant RED (C-A.1: the ascending removal loop; C-A.2: a pre-request success
+  toast and a pre-request `removeFromQueueAndAdvance(itemId)`; C-A.3: `if (song == null) return;`
+  before `deleteFromCache(itemId)`, on device; C-A.4: break the purge, run the class twice, the second
+  run must fail on an R11 assertion and never on "fixture file must be creatable"; C-A.5: a locale
+  fragment that matches nothing, and `setVisible(serverBacked || true)`). Until then its matrix row is
+  `Exists? NO` in substance, whatever code exists. C-A.3 and C-A.4 are instrumented legs, so they also
+  need a real device run with per-test evidence (G4) before they mean anything.**
+
 - **History (so a later reader is not misled):** through round 1 the matrix cited five
   never-authored methods as coverage, and T6a/T10a were ticked while naming two of them
-  (`e2e3_alreadyGoneSecondDelete`, `e2e6_cachedSongPurged`). Both are now `Exists? NO` rows.
-  The three properties the Reviewer killed by mutation (R2 request-before-confirm, R2
-  destructive copy, R9 SUCCESS-branch refresh) had no executed coverage either; they are now
-  explicit `Exists? NO` rows for the Builder's round-2 lane.
+  (`e2e3_alreadyGoneSecondDelete`, `e2e6_cachedSongPurged`). Both remain `Exists? NO` rows. The
+  three properties the Reviewer killed by mutation in round 1 (R2 request-before-confirm, R2
+  destructive copy, R9 SUCCESS-branch refresh) had no executed coverage at that point; they were
+  recorded as `Exists? NO` for the round-2 lane and are **closed** — the rows now name the executed
+  tests (`DeleteFromLibraryDialogSourceTest`, the SUCCESS-scoped R4/R9 assertions) and the mutants
+  each kills. What remains open is behavioral, not textual: R3/R4/R9/R10 end to end (G3), the three
+  NOT RUN device legs above (G4), and the four unpinned properties C-A.1–C-A.5 / F1/F3/F5/R2-B1.
 
 ## Named limitations (stated, not implied guarantees)
 
@@ -189,9 +278,13 @@ Each destructive run executes the full cycle (as a script, **NOT YET WRITTEN** �
   Within one cycle: delete succeeds, the app is pointed at the same dead id again (re-queued restored-queue trick or second activation after re-open),
   the second attempt toasts *already gone*, distinct from success, item stays out of the queue;
   then P5→P8.
-- **e2e4_cancelNoop** (R2) — **WRITTEN** (the only E2E method that exists today). Open the
+- **e2e4_cancelNoop** (R2) — **WRITTEN but NEVER EXECUTED** (the only E2E method that exists, and
+  it has zero executed runs — see G4). Open the
   dialog, Cancel; server shows the item still present and no DELETE in the request log (L2 when
-  available); queue untouched. Non-destructive, but runs P0/P7 as guard rails.
+  available); queue untouched. Non-destructive, but runs P0/P7 as guard rails. It `assumeTrue`s on
+  `qa_server/qa_token/qa_user/qa_item` instrument args supplied by the driver (G2), so it cannot
+  execute until that driver exists — and its skip prints as `0 ignored`, which is why "the E2E suite
+  is green" must never be quoted as evidence for R2.
 - **e2e5_noSessionReportsForDeadId** (R10) — **NOT YET WRITTEN — the QA round must author it in
   `app/src/androidTest/java/club/thatpetbff/gramophone/ui/DeleteFromLibraryE2eTest.java`.**
   After delete-and-advance, no `Sessions/Playing/Progress` request line names the deleted id
@@ -224,11 +317,27 @@ playback moved to the next track with no dead mini-player. Cancel instead change
 refusal (401) and an already-gone item (404) each say which — and after every destructive test
 the protocol puts the file back, re-adds it to every playlist, and the library is as found.
 
-**Which parts of that sentence are demonstrated today:** the menu surface, the dialog, the
-cancel path, the four outcome mappings, the latch, the cache-purge primitives and the
-English-only string rule. **Not demonstrated:** that a confirmed delete reaches the server once
-and 404s afterwards (R3), that playback advances / stops cleanly (R4), that Favorites refreshes
-(R9), and that no session report names the dead id (R10) — those four need the unwritten E2E cases
-and the unwritten driver (G2, G3, L5). R6 and R11 each keep one unwritten on-device leg too
-(the second-delete toast and the end-to-end cached-state purge), but both already have an
-executed unit/instrumented contract for the behavior itself; R3, R4, R9 and R10 do not.
+**Which parts of that sentence are demonstrated today** (executed, with the caveat in each row):
+the four outcome mappings, the in-flight latch including the synchronous-throw path, the
+menu-item statics, the English-only string rule, the destructive-copy content and the
+dialog-issues-no-request rule **as JVM source contracts**, and — on device, per-test verified — the
+hidden-when-empty-queue leg, the Room cache-row purge and the three cached-file removals.
+
+**Not demonstrated:** that a confirmed delete reaches the server once and 404s afterwards (R3),
+that playback advances or stops cleanly (R4), that Favorites refreshes (R9), and that no session
+report names the dead id (R10) — those four need the unwritten E2E cases and the unwritten driver
+(G2, G3, L5). Also not demonstrated, and easy to miss: **R1's shown-when-server-backed leg**, the
+**confirm-dialog-on-device** behavior and the **cancel-is-a-noop path** (all three legs self-skipped;
+`e2e4_cancelNoop` has never run — G4), **R4's removal ORDER** (F1), **R11's file removal inside the
+gate** (F2, G5), **R11 with a missing `songs` row** (F3), and **R1's gate against a textually-complete
+always-visible expression** (R2-B1). R6 and R11 each keep one unwritten on-device E2E leg too (the
+second-delete toast and the end-to-end cached-state purge), but both have an executed contract for
+the behavior itself; R3, R4, R9 and R10 do not.
+
+**QA round's must-run device set** (C-B, before the version bump ships, with per-test
+`started:`/`finished:` evidence and no `assumption failed` line): `CachePurgeOnDeleteInstrumentedTest`
+— the only pin for R11's file removals (G5), **including its two new never-executed legs: the C-A.3
+absent-`songs`-row leg and the C-A.4 self-restoring fixture behaviour (break the purge, run twice,
+the second run must fail on an R11 assertion)** — plus `DeleteMenuItemVisibilityTest`,
+`DeleteConfirmDialogTest` and `e2e4_cancelNoop`, all of which need a live app session first, or they
+silently do nothing and still report OK.

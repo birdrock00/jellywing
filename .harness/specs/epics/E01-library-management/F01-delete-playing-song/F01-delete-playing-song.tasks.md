@@ -8,7 +8,7 @@
 > because every later pair needs the English strings to exist; RED is still observable there
 > (the full key list is absent until T2b).
 >
-> **Status note (2026-11-12, Reviewer round 1 / blocker B1).** A ticked task means its leg
+> **Status note (2026-11-12, Reviewer rounds 1-2).** A ticked task means its leg
 > actually ran; it does not vouch for any E2E case. `e2e1_happyPathCycle`,
 > `e2e2_playlistCleanAfterScan`, `e2e3_alreadyGoneSecondDelete`,
 > `e2e5_noSessionReportsForDeadId`, `e2e6_cachedSongPurged` and
@@ -16,6 +16,49 @@
 > T4a, T6c, T9a and T10c, so R3, R4, R9 and R10 have no executed end-to-end proof today, and
 > T6a/T10a are ticked for their unit/instrumented legs only. See the *What actually executes*
 > section of `.tests.md`.
+>
+> **Round 2 closed, and round 3 is open (so ticks are read correctly).** The round-2 pairs landed
+> the tests the Reviewer demanded — `DeleteFromLibraryDialogSourceTest` (R2/R3 request-before-confirm
+> + destructive-copy content), the SUCCESS-block scoping of
+> `testSuccessOutcomeRunsQueueDropAndFavoritesRefresh` (R4/R9), `LibraryDeleteSyncThrowLatchTest`
+> (R8), `LibraryDeleteDuplicateQueueTest` (R4 lookup), the derived R12 key pattern with
+> `testDeleteStringKeyListIsDerivedNotEmpty`, and the executed gate/theme contracts. **No tick here
+> claims a device leg ran**: on the 2026-11-12 instrumented run, three of six device legs
+> self-skipped and the runner still printed OK — `DeleteConfirmDialogTest`,
+> `deleteItemShownWhenServerBackedSongIsCurrent` and `e2e4_cancelNoop` are **NOT RUN** (T3a's device
+> half stays unmet in fact even though T3a is ticked for its authored-and-JVM-verified half). Before
+> the PR, Builder condition **C-A.1 → C-A.5** (removal-order pin; widened pre-request region;
+> absent-`songs`-row purge leg; self-restoring R11 fixture; locale-vacuity + `setVisible(serverBacked)`
+> exact-expression kill) is **IN PROGRESS and none of it is done**: at `8e1ff1ee` C-A.1 (`e88b33fa`),
+> C-A.2 (`17d91a00`), C-A.3 (`7a3743c8`) and C-A.4 (`8e1ff1ee`) were committed with **no Reviewer
+> mutation evidence** and (for C-A.3/C-A.4) no device run, while C-A.5 was still uncommitted. No task
+> below is ticked, or may be ticked, for a C-A item on the strength of a green gate — the acceptance
+> for each is its named mutant going RED (review-round2 §7 C-A); C-A.3 and C-A.4 additionally need a
+> real device run with per-test `started:`/`finished:` evidence before they mean anything.
+
+**Test-drift waivers for the round-2 pair commits (Reviewer C-A.6).** `test-drift-check.sh` reports
+the round-2 replacements of the round-1 whole-file assertions as drift; the Reviewer ran them at each
+pair commit and read every finding (`sh tools/test-drift-check.sh <pair-sha> --tasks-md <this file>
+--feature-scope origin/master`): 6 findings at `9561be6b` and at `b3fa2137`, 2 at `9fb1f19b`, `e2207e40`
+and `ef65b0d2`, 0 at `f68d6eea`/`0a148494`/`fe0d190a`/`4cb17c6a`; `origin/master` (whole feature) is 0
+findings. Every finding is in `DeleteFromLibraryWiringSourceTest.java` and replaces a round-1 assertion
+with the narrower one the Reviewer itself demanded: the whole-file R4/R9 `contains(...)` labels ("Success
+path must toast the success string / drop the deleted entry / refresh Favorites / advance playback") by
+the `case SUCCESS:`-block reading in `testSuccessOutcomeRunsQueueDropAndFavoritesRefresh`, and the
+hand-typed R12 key-list assertions ("New string key missing from default values/strings.xml", "key must
+not be added to localized values-*") by the pattern-derived versions in `testNewStringsLiveInDefaultEnglishOnly` and
+`testDeleteStringKeyListIsDerivedNotEmpty`. Both were confirmed RED against their mutants
+(review-round2 §1), so this is tightening, not loss of coverage.
+
+- waive-test-drift: app/src/test/java/club/thatpetbff/gramophone/util/DeleteFromLibraryWiringSourceTest.java — round-2 SUCCESS-block tightening demanded by Reviewer B4/M-4: the whole-file R4/R9 assertions in testSuccessOutcomeRunsQueueDropAndFavoritesRefresh were replaced by case-SUCCESS-scoped ones (RED for the SUCCESS-only mutant, independently of the ALREADY_GONE test); replacing a whole-file assertion is not loss of coverage
+- waive-test-drift: app/src/test/java/club/thatpetbff/gramophone/util/DeleteFromLibraryWiringSourceTest.java — round-2 derivation demanded by Reviewer M-4: testNewStringsLiveInDefaultEnglishOnly's hand-typed key list and its per-locale assertion were replaced by the pattern-derived list with a non-vacuity floor (RED for the untracked-values-de mutant); replacing a hand-typed assertion is not loss of coverage
+
+> Tool caveat, stated rather than hidden: for these Java findings the drift tool attributes the
+> finding to the **file path**, not to the `@Test` method name, so the waiver names above are what
+> the tool actually matches — and a waiver is file-scoped, which is broader than one test. Until
+> C-A.5's own edits land, any *new* drift inside that file will be waived by these lines: read the
+> finding text before accepting a waived run, and delete these waivers once the pair commits are
+> behind the default branch.
 
 - [x] **T1a** (R1) — write failing `app/src/androidTest/java/club/thatpetbff/gramophone/ui/DeleteMenuItemVisibilityTest.java`: with a server-backed song current, the player overflow contains **Delete from library**; with an empty queue it does not. Run on the emulator; observe RED (menu id does not exist)
 - [x] **T1b** (R1) — minimal code: `action_delete_from_library` in `app/src/main/res/menu/menu_player.xml` (`showAsAction="never"`, English title), shared visibility helper in `app/src/main/java/club/thatpetbff/gramophone/fragments/player/AbsPlayerFragment.java` gating on the current song's server id, one call each in `app/src/main/java/club/thatpetbff/gramophone/fragments/player/card/CardPlayerFragment.java` and `app/src/main/java/club/thatpetbff/gramophone/fragments/player/flat/FlatPlayerFragment.java` after `inflateMenu`; observe GREEN; commit
