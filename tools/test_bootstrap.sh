@@ -20,7 +20,7 @@ cd "$ROOT"
 CONFIG=".harness/harness.config.yaml"
 
 # Case list, appended as pairs land; consumed by the all-cases sweep.
-CASES="r1_test_command_runs_unit_tests r2_typecheck_command_compiles_sources r3_lint_command_completes r4_init_script_resolves_and_passes r5_board_project_name_is_jellywing"
+CASES="r1_test_command_runs_unit_tests r2_typecheck_command_compiles_sources r3_lint_command_completes r4_init_script_resolves_and_passes r5_board_project_name_is_jellywing r6_product_constitution_has_no_todo"
 
 fail() {
     printf 'FAIL %s\n' "$1" >&2
@@ -102,6 +102,34 @@ r5_board_project_name_is_jellywing() {
     ( cd .harness && python3 tools/validate-board.py state/tasks.json store/tasks.schema.json --spec-root . ) >/dev/null \
         || fail "R5 r5_board_project_name_is_jellywing: validate-board.py rejected .harness/$board"
     echo "PASS R5 r5_board_project_name_is_jellywing"
+}
+
+r6_product_constitution_has_no_todo() {
+    # R6 — no whole-word TODO (case-insensitive) anywhere; each of the three
+    # sections holds at least one real prose line; the frontmatter block that
+    # starts on line 1 carries status: ready and stage: production.
+    f=".harness/specs/product.md"
+    if grep -Eiq '(^|[^[:alnum:]_])TODO([^[:alnum:]_]|$)' "$f"; then
+        fail "R6 r6_product_constitution_has_no_todo: $f still contains a whole-word TODO occurrence"
+    fi
+    for h in "What this product is" "Who it is for" "Principles & hard constraints"; do
+        # Non-empty, non-comment (no blank / no '>' blockquote / no '#') prose
+        # line inside the extracted section — not a whole-file grep, so a
+        # section body cannot be satisfied by text living elsewhere.
+        if ! awk -v hdr="## $h" 'index($0, hdr) == 1 {k = 1; next} k && /^#/ {k = 0} k' "$f" \
+            | grep -Ev '^[[:space:]]*$|^[[:space:]]*>|^[[:space:]]*#' \
+            | grep -q '[[:alnum:]]'; then
+            fail "R6 r6_product_constitution_has_no_todo: section '## $h' has no non-empty non-comment prose line"
+        fi
+    done
+    head -n 1 "$f" | grep -qx -- '---' \
+        || fail "R6 r6_product_constitution_has_no_todo: frontmatter block does not start on line 1"
+    fm=$(awk 'NR == 1 && $0 == "---" {inb = 1; next} inb && $0 == "---" {exit} inb' "$f")
+    printf '%s\n' "$fm" | grep -qx 'status: ready' \
+        || fail "R6 r6_product_constitution_has_no_todo: frontmatter does not carry status: ready"
+    printf '%s\n' "$fm" | grep -qx 'stage: production' \
+        || fail "R6 r6_product_constitution_has_no_todo: frontmatter no longer carries stage: production"
+    echo "PASS R6 r6_product_constitution_has_no_todo"
 }
 
 main() {
