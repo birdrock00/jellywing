@@ -26,6 +26,27 @@ public final class LibraryDeleteUtil {
     }
 
     /**
+     * Pure mapping from a failed delete request to an outcome (plan note 4). The apiclient
+     * surfaces HTTP failures as {@link org.jellyfin.apiclient.model.net.HttpException} with
+     * the status already read off the network response, so the UI branches on the outcome,
+     * never on transport types. R5: 401 is the item-level permission refusal this fork
+     * returns for DELETE /Items/{id}.
+     */
+    public static DeleteOutcome mapOutcome(Throwable error) {
+        Integer status = null;
+        if (error instanceof org.jellyfin.apiclient.model.net.HttpException) {
+            status = ((org.jellyfin.apiclient.model.net.HttpException) error).getStatusCode();
+        }
+        if (status != null && status >= 200 && status < 300) {
+            return DeleteOutcome.SUCCESS;
+        }
+        if (status != null && status == 401) {
+            return DeleteOutcome.PERMISSION_DENIED;
+        }
+        return DeleteOutcome.SERVER_FAILURE;
+    }
+
+    /**
      * Entry point behind the confirmation dialog's positive button. The request
      * pipeline itself lands with R3 (T4b); for the dialog-first pair (T3) this is
      * intentionally inert — no request, no state change.
