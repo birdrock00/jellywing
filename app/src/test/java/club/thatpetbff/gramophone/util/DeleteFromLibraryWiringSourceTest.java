@@ -1,5 +1,6 @@
 package club.thatpetbff.gramophone.util;
 
+import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
@@ -97,7 +98,50 @@ public class DeleteFromLibraryWiringSourceTest {
                 deleteBranch.contains("LibraryDeleteUtil"));
     }
 
+    /**
+     * R3: confirming issues exactly one stock DELETE through the existing apiclient —
+     * no new HTTP plumbing. (Call-site source contract; the count of one request per
+     * confirm on-device is E2E-1's leg in QA.)
+     */
+    @Test
+    public void testUtilIssuesSingleStockDeleteCall() throws Exception {
+        String util = read("src/main/java/club/thatpetbff/gramophone/util/LibraryDeleteUtil.java");
+        assertTrue("Delete pipeline must use App.getApiClient() (R3)",
+                util.contains("App.getApiClient()"));
+        long callSites = countCodeLinesWith(util, "DeleteItem(");
+        assertEquals("Exactly one ApiClient.DeleteItem call site expected (R3), found: " + callSites,
+                1L, callSites);
+        assertFalse("No hand-rolled HTTP allowed (R3: no new HTTP plumbing)",
+                util.contains("HttpURLConnection") || util.contains("Volley") || util.contains("OkHttp"));
+    }
+
+    /**
+     * R4/R9: the success outcome toasts success, drops the deleted entry from the queue
+     * and refreshes Favorites — the client-side aftermath the user must see.
+     */
+    @Test
+    public void testSuccessOutcomeRunsQueueDropAndFavoritesRefresh() throws Exception {
+        String util = read("src/main/java/club/thatpetbff/gramophone/util/LibraryDeleteUtil.java");
+        assertTrue("Success path must toast the success string (R4)",
+                util.contains("R.string.delete_from_library_success"));
+        assertTrue("Success path must drop the deleted entry from the queue (R4)",
+                util.contains("removeFromQueue("));
+        assertTrue("Success path must refresh Favorites without user action (R9)",
+                util.contains("FavoritesStore.notifyChanged()"));
+        assertTrue("Success path must advance playback to the next queued track (R4)",
+                util.contains("playSongAt("));
+    }
+
+    private static long countCodeLinesWith(String source, String needle) {
+        return java.util.Arrays.stream(source.split("\n"))
+                .map(String::trim)
+                .filter(line -> line.contains(needle))
+                .filter(line -> !line.startsWith("*") && !line.startsWith("//"))
+                .count();
+    }
+
     private static String read(String relativeToAppModule) throws Exception {
+
         return new String(Files.readAllBytes(
                 new File(relativeToAppModule).toPath()), StandardCharsets.UTF_8);
     }
