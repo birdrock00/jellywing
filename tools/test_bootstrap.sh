@@ -20,7 +20,7 @@ cd "$ROOT"
 CONFIG=".harness/harness.config.yaml"
 
 # Case list, appended as pairs land; consumed by the all-cases sweep.
-CASES="r1_test_command_runs_unit_tests r2_typecheck_command_compiles_sources r3_lint_command_completes"
+CASES="r1_test_command_runs_unit_tests r2_typecheck_command_compiles_sources r3_lint_command_completes r4_init_script_resolves_and_passes"
 
 fail() {
     printf 'FAIL %s\n' "$1" >&2
@@ -77,6 +77,19 @@ r3_lint_command_completes() {
     mt=$(stat -c %Y "$report")
     [ "$mt" -ge "$start" ] || fail "R3 r3_lint_command_completes: $report mtime ($mt) predates case start ($start) — lint did not actually re-run"
     echo "PASS R3 r3_lint_command_completes"
+}
+
+r4_init_script_resolves_and_passes() {
+    # R4 — verification.init_script names a script that exists relative to the
+    # repository root, is executable, and exits 0 when run from that root.
+    script=$(sed -n 's/^[[:space:]]*init_script:[[:space:]]*//p' "$CONFIG" | head -n 1)
+    script=${script%%#*}                                 # trailing YAML comment
+    script=$(printf '%s' "$script" | sed -e 's/[[:space:]]*$//' -e 's/^"\(.*\)"$/\1/')
+    [ -n "$script" ] || fail "R4 r4_init_script_resolves_and_passes: verification.init_script is empty in $CONFIG"
+    [ -f "$script" ] || fail "R4 r4_init_script_resolves_and_passes: init_script '$script' does not exist relative to repository root $ROOT"
+    [ -x "$script" ] || fail "R4 r4_init_script_resolves_and_passes: init_script '$script' exists but is not executable"
+    "$script" || fail "R4 r4_init_script_resolves_and_passes: init_script '$script' exited non-zero from the repository root"
+    echo "PASS R4 r4_init_script_resolves_and_passes"
 }
 
 main() {
