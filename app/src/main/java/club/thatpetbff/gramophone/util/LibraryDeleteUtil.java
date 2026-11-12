@@ -32,8 +32,7 @@ public final class LibraryDeleteUtil {
         SERVER_FAILURE
     }
 
-    private LibraryDeleteUtil() {
-    }
+
 
     /**
      * Entry point behind the confirmation dialog's positive button. Exactly one stock
@@ -42,6 +41,11 @@ public final class LibraryDeleteUtil {
      */
     public static void deleteFromLibrary(Context context, String itemId) {
         if (itemId == null || itemId.trim().isEmpty()) {
+            return;
+        }
+        if (!tryBeginDelete(itemId)) {
+            // R8: a delete for this id is already in flight — ignore the repeat and
+            // issue no second request.
             return;
         }
         App.getApiClient().DeleteItem(itemId, new EmptyResponse() {
@@ -87,8 +91,33 @@ public final class LibraryDeleteUtil {
         return DeleteOutcome.SERVER_FAILURE;
     }
 
+    private static final java.util.Set<String> inFlight =
+            java.util.Collections.synchronizedSet(new java.util.HashSet<>());
+
+    private LibraryDeleteUtil() {
+    }
+
+    /**
+     * R8 in-flight latch keyed by item id: the first activation arms it and proceeds;
+     * any activation while armed is ignored, so at most one delete request per id is in
+     * flight. Must be released via {@link #endDelete(String)} on every terminal outcome.
+     */
+    public static boolean tryBeginDelete(String itemId) {
+        return itemId != null && inFlight.add(itemId);
+    }
+
+    /** Releases the latch after a terminal outcome (success or any failure class). */
+    public static void endDelete(String itemId) {
+        if (itemId != null) {
+            inFlight.remove(itemId);
+        }
+    }
+
     /** Turns one outcome into its toast and (success/404 only) the client-side cleanup. */
     static void handleOutcome(String itemId, DeleteOutcome outcome) {
+        // Every outcome is terminal for this request: release the R8 latch first so a
+        // later activation is a genuinely new request, never a swallowed duplicate.
+        endDelete(itemId);
         switch (outcome) {
             case SUCCESS:
                 toast(R.string.delete_from_library_success);

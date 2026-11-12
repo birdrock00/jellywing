@@ -60,4 +60,24 @@ public class LibraryDeleteOutcomeTest {
         assertEquals("Any status other than 2xx/401/404 must map to SERVER_FAILURE (R7)",
                 DeleteOutcome.SERVER_FAILURE, LibraryDeleteUtil.mapOutcome(serverBoom));
     }
+
+    @Test
+    public void testSecondRequestIgnoredWhileInFlight() {
+        // R8: one delete per item id in flight; repeat activations are absorbed and
+        // issue no second request. The latch is keyed by id, cleared on every
+        // terminal outcome.
+        assertTrue("first activation must be accepted",
+                LibraryDeleteUtil.tryBeginDelete("item-A"));
+        assertFalse("second activation while in flight must be ignored (R8)",
+                LibraryDeleteUtil.tryBeginDelete("item-A"));
+
+        LibraryDeleteUtil.endDelete("item-A");
+        assertTrue("latch must be released after the terminal outcome (R8)",
+                LibraryDeleteUtil.tryBeginDelete("item-A"));
+        LibraryDeleteUtil.endDelete("item-A");
+
+        assertTrue("the latch is keyed by item id — other ids are unaffected (R8)",
+                LibraryDeleteUtil.tryBeginDelete("item-B"));
+        LibraryDeleteUtil.endDelete("item-B");
+    }
 }

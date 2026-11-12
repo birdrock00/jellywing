@@ -174,6 +174,28 @@ public class DeleteFromLibraryWiringSourceTest {
                 block.contains("delete_from_library_success"));
     }
 
+    /**
+     * R8: the request path arms the latch before the API call and every outcome
+     * releases it — a swallowed repeat issues no second request, and a released latch
+     * never blocks a genuinely new delete.
+     */
+    @Test
+    public void testInFlightGuardWrapsRequestAndReleasesOnOutcome() throws Exception {
+        String util = read("src/main/java/club/thatpetbff/gramophone/util/LibraryDeleteUtil.java");
+        int entry = util.indexOf("public static void deleteFromLibrary");
+        int apiCall = util.indexOf("DeleteItem(", entry);
+        assertTrue("entry point and request must exist", entry >= 0 && apiCall > entry);
+        String beforeRequest = util.substring(entry, apiCall);
+        assertTrue("guard must arm the latch before the request (R8)",
+                beforeRequest.contains("tryBeginDelete("));
+        int handler = util.indexOf("static void handleOutcome");
+        int switchStart = util.indexOf("switch (outcome)", handler);
+        assertTrue("outcome handler must exist", handler >= 0 && switchStart > handler);
+        String beforeSwitch = util.substring(handler, switchStart);
+        assertTrue("every terminal outcome releases the latch (R8)",
+                beforeSwitch.contains("endDelete(itemId)"));
+    }
+
     private static long countCodeLinesWith(String source, String needle) {
         return java.util.Arrays.stream(source.split("\n"))
                 .map(String::trim)
