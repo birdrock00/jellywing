@@ -1,6 +1,7 @@
 package club.thatpetbff.gramophone.database;
 
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
 import androidx.test.core.app.ApplicationProvider;
@@ -59,6 +60,41 @@ public class CachePurgeOnDeleteInstrumentedTest {
         assertFalse("cached file at cache root must be gone (R11)", direct.exists());
         assertFalse("in-flight download file must be gone (R11)", download.exists());
         assertFalse("downloaded audio file must be gone (R11)", audio.exists());
+    }
+
+    /**
+     * R11's missing-songs-row half, which no other leg covered: the purge reads the song row to
+     * derive the downloaded-file name, so gating the {@code cache} row delete on that lookup being
+     * non-null silently leaves a cache row for an item the library no longer has — the app keeps
+     * offering a cached copy of a file the server deleted.
+     *
+     * <p>The state under test is "cache row present, songs row absent". {@code SongDao}
+     * only offers a whole-table {@code deleteSongs()}, which would destroy the real library rows on
+     * a development emulator, so the songs row is simply never created. The observable state is
+     * identical, the leg stays non-destructive, and the precondition is asserted rather than
+     * assumed.
+     */
+    @Test
+    public void purgeRemovesCacheRowWhenTheSongsRowIsAbsent() throws Exception {
+        App app = (App) ApplicationProvider.getApplicationContext();
+        String id = "qa-orphan-" + System.nanoTime();
+        Song orphan = new Song();
+        orphan.id = id;
+        orphan.title = "QA Orphan Fixture";
+        App.getDatabase().cacheDao().insertCache(new Cache(orphan));
+        try {
+            assertTrue("fixture must start cached", App.getDatabase().cacheDao().isCached(id));
+            assertNull("fixture must have NO songs row — that absence is the whole point (R11)",
+                    App.getDatabase().songDao().getSong(id));
+
+            LibraryDeleteUtil.purgeCacheEntry(id);
+
+            assertFalse("a missing songs row must not skip the Room cache row — the cache row "
+                            + "delete is unconditional in purgeCacheEntry (R11)",
+                    isCached(app, id));
+        } finally {
+            App.getDatabase().cacheDao().deleteFromCache(id);
+        }
     }
 
     @Test
