@@ -20,7 +20,7 @@ cd "$ROOT"
 CONFIG=".harness/harness.config.yaml"
 
 # Case list, appended as pairs land; consumed by the all-cases sweep.
-CASES="r1_test_command_runs_unit_tests r2_typecheck_command_compiles_sources r3_lint_command_completes r4_init_script_resolves_and_passes r5_board_project_name_is_jellywing r6_product_constitution_has_no_todo r7_server_read_only_principle_stated r8_glossary_defines_domain_terms"
+CASES="r1_test_command_runs_unit_tests r2_typecheck_command_compiles_sources r3_lint_command_completes r4_init_script_resolves_and_passes r5_board_project_name_is_jellywing r6_product_constitution_has_no_todo r7_server_read_only_principle_stated r8_glossary_defines_domain_terms r9_project_gate_reports_prerequisites"
 
 fail() {
     printf 'FAIL %s\n' "$1" >&2
@@ -188,6 +188,20 @@ Operator inbox
 Run
 TERMS
     echo "PASS R8 r8_glossary_defines_domain_terms"
+}
+
+r9_project_gate_reports_prerequisites() {
+    # R9 — ./.harness/init.sh exits 0 AND its stdout names both project
+    # prerequisites the gate now checks, so a silently missing check cannot
+    # pass. The two warn-only notices (un-versioned harness body, escalation
+    # disarmed) are expected and not failures.
+    out=$(./.harness/init.sh 2>&1) \
+        || fail "R9 r9_project_gate_reports_prerequisites: ./.harness/init.sh exited non-zero"
+    printf '%s\n' "$out" | grep -qi 'gradle wrapper' \
+        || fail "R9 r9_project_gate_reports_prerequisites: gate output does not name the Gradle wrapper check"
+    printf '%s\n' "$out" | grep -qi 'jdk 17' \
+        || fail "R9 r9_project_gate_reports_prerequisites: gate output does not name the JDK 17 check"
+    echo "PASS R9 r9_project_gate_reports_prerequisites"
 }
 
 main() {
