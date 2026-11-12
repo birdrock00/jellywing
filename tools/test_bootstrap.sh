@@ -27,14 +27,23 @@ fail() {
     exit 1
 }
 
+# T12 (R1/R2/R3): ONE shared reader for the single-string `verification.`
+# scalars, replacing the parse duplicated across the three gradle-backed
+# cases. Strips a trailing YAML comment, trailing whitespace, and surrounding
+# double quotes; values consumed here contain neither '#' nor embedded
+# quotes. r10 is deliberately NOT on this path — its subject is the EFFECTIVE
+# pattern change-size.sh prints, not a YAML value. r4 reads a script PATH and
+# is outside T12's stated scope, so its local parse stays.
+verification_value() {
+    raw=$(sed -n "s/^[[:space:]]*$1:[[:space:]]*//p" "$CONFIG" | head -n 1)
+    raw=${raw%%#*}
+    printf '%s' "$raw" | sed -e 's/[[:space:]]*$//' -e 's/^"\(.*\)"$/\1/'
+}
+
 r1_test_command_runs_unit_tests() {
     # R1 — verification.test_command, read from the config, must be non-empty,
     # run from the repository root, and exit 0.
-    # The parse is deliberately local; T12 (R1/R2/R3) factors the three
-    # gradle-backed cases onto one shared reader.
-    cmd=$(sed -n 's/^[[:space:]]*test_command:[[:space:]]*//p' "$CONFIG" | head -n 1)
-    cmd=${cmd%%#*}                                   # trailing YAML comment
-    cmd=$(printf '%s' "$cmd" | sed -e 's/[[:space:]]*$//' -e 's/^"\(.*\)"$/\1/')
+    cmd=$(verification_value test_command)
     [ -n "$cmd" ] || fail "R1 r1_test_command_runs_unit_tests: verification.test_command is empty in $CONFIG — nothing to run"
     sh -c "$cmd" || fail "R1 r1_test_command_runs_unit_tests: configured command '$cmd' exited non-zero"
     echo "PASS R1 r1_test_command_runs_unit_tests"
@@ -43,10 +52,7 @@ r1_test_command_runs_unit_tests() {
 r2_typecheck_command_compiles_sources() {
     # R2 — verification.typecheck_command, read from the config, must be
     # non-empty, run from the repository root, and exit 0.
-    # Parse duplicated from r1 by design; T12 (R1/R2/R3) unifies it.
-    cmd=$(sed -n 's/^[[:space:]]*typecheck_command:[[:space:]]*//p' "$CONFIG" | head -n 1)
-    cmd=${cmd%%#*}                                   # trailing YAML comment
-    cmd=$(printf '%s' "$cmd" | sed -e 's/[[:space:]]*$//' -e 's/^"\(.*\)"$/\1/')
+    cmd=$(verification_value typecheck_command)
     [ -n "$cmd" ] || fail "R2 r2_typecheck_command_compiles_sources: verification.typecheck_command is empty in $CONFIG — nothing to run"
     sh -c "$cmd" || fail "R2 r2_typecheck_command_compiles_sources: configured command '$cmd' exited non-zero"
     echo "PASS R2 r2_typecheck_command_compiles_sources"
@@ -63,12 +69,9 @@ r3_lint_command_completes() {
     # remove the report (a Gradle output, inside gitignored app/build/) right
     # before invoking — deleting an output forces the task to re-execute —
     # then assert existence + mtime >= case start. The freshness assertion is
-    # kept verbatim, not loosened to existence-only. Parse duplicated from r1
-    # by design; T12 (R1/R2/R3) unifies it.
+    # kept verbatim, not loosened to existence-only.
     report="app/build/reports/lint-results-debug.txt"
-    cmd=$(sed -n 's/^[[:space:]]*lint_command:[[:space:]]*//p' "$CONFIG" | head -n 1)
-    cmd=${cmd%%#*}                                   # trailing YAML comment
-    cmd=$(printf '%s' "$cmd" | sed -e 's/[[:space:]]*$//' -e 's/^"\(.*\)"$/\1/')
+    cmd=$(verification_value lint_command)
     [ -n "$cmd" ] || fail "R3 r3_lint_command_completes: verification.lint_command is empty in $CONFIG — nothing to run"
     start=$(date +%s)
     rm -f "$report"
