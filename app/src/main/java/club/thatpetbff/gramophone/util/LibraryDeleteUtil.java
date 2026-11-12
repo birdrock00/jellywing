@@ -50,17 +50,27 @@ public final class LibraryDeleteUtil {
             // issue no second request.
             return;
         }
-        App.getApiClient().DeleteItem(itemId, new EmptyResponse() {
-            @Override
-            public void onResponse() {
-                handleOutcome(itemId, DeleteOutcome.SUCCESS);
-            }
+        try {
+            App.getApiClient().DeleteItem(itemId, new EmptyResponse() {
+                @Override
+                public void onResponse() {
+                    handleOutcome(itemId, DeleteOutcome.SUCCESS);
+                }
 
-            @Override
-            public void onError(Exception exception) {
-                handleOutcome(itemId, mapOutcome(exception));
-            }
-        });
+                @Override
+                public void onError(Exception exception) {
+                    handleOutcome(itemId, mapOutcome(exception));
+                }
+            });
+        } catch (Exception e) {
+            // R8: the latch is armed before the request, so a request that never gets as far
+            // as a callback must terminate it here — otherwise this id stays latched for the
+            // life of the process and every later delete is silently ignored. The throw must
+            // not reach the dialog's click handler either: it is a user-visible failure, not
+            // a crash.
+            endDelete(itemId);
+            toast(R.string.delete_from_library_failed);
+        }
     }
 
     /**
