@@ -116,20 +116,54 @@ public class DeleteFromLibraryWiringSourceTest {
     }
 
     /**
-     * R4/R9: the success outcome toasts success, drops the deleted entry from the queue
-     * and refreshes Favorites — the client-side aftermath the user must see.
+     * R4/R9: the SUCCESS outcome itself toasts success, drops the deleted entry from the
+     * queue and refreshes Favorites.
+     *
+     * <p>Scope matters: whole-file contains() assertions are satisfied by the ALREADY_GONE
+     * branch, so deleting notifyChanged() from the SUCCESS branch alone stayed green. The
+     * R10 test already read the SUCCESS block; this one now does the same, and the helper
+     * it delegates to is pinned separately below so its body cannot be hollowed out.
      */
     @Test
     public void testSuccessOutcomeRunsQueueDropAndFavoritesRefresh() throws Exception {
         String util = read("src/main/java/club/thatpetbff/gramophone/util/LibraryDeleteUtil.java");
-        assertTrue("Success path must toast the success string (R4)",
-                util.contains("R.string.delete_from_library_success"));
-        assertTrue("Success path must drop the deleted entry from the queue (R4)",
-                util.contains("removeFromQueue("));
-        assertTrue("Success path must refresh Favorites without user action (R9)",
-                util.contains("FavoritesStore.notifyChanged()"));
-        assertTrue("Success path must advance playback to the next queued track (R4)",
-                util.contains("playSongAt("));
+        int start = util.indexOf("case SUCCESS:");
+        assertTrue("handleOutcome must branch on SUCCESS", start >= 0);
+        int end = util.indexOf("break;", start);
+        assertTrue("the SUCCESS branch must terminate with break;", end > start);
+        String success = util.substring(start, end);
+
+        assertTrue("SUCCESS must toast the success string (R4)",
+                success.contains("R.string.delete_from_library_success"));
+        assertTrue("SUCCESS must drop the deleted entry from the queue (R4)",
+                success.contains("removeFromQueueAndAdvance("));
+        assertTrue("SUCCESS must refresh Favorites without user action (R9)",
+                success.contains("FavoritesStore.notifyChanged()"));
+    }
+
+    /**
+     * R4 (inside the helper the SUCCESS branch calls): remove the entry, start whatever now
+     * occupies that index, and stop cleanly when that removal empties the queue. Asserted on
+     * the helper body, because both SUCCESS and ALREADY_GONE call it — an assertion anywhere
+     * else would be satisfied by the other branch's call site.
+     */
+    @Test
+    public void testRemoveFromQueueAndAdvanceHandlesCurrentLoneAndLaterEntries() throws Exception {
+        String util = read("src/main/java/club/thatpetbff/gramophone/util/LibraryDeleteUtil.java");
+        int start = util.indexOf("private static void removeFromQueueAndAdvance");
+        assertTrue("the queue cleanup helper must exist (R4)", start >= 0);
+        int end = util.indexOf("\n    }", start);
+        assertTrue("the queue cleanup helper must have a body", end > start);
+        String body = util.substring(start, end);
+
+        assertTrue("the helper must remove the deleted entry (R4)",
+                body.contains("removeFromQueue("));
+        assertTrue("the helper must know whether the removed entry was the current one (R4)",
+                body.contains("getPosition()"));
+        assertTrue("the helper must start the track that now occupies the index (R4)",
+                body.contains("playSongAt("));
+        assertTrue("a lone deleted entry must stop playback rather than sit on a dead item (R4)",
+                body.contains("isEmpty()") && body.contains("clearQueue()"));
     }
 
     /**
