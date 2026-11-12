@@ -99,6 +99,61 @@ public class DeleteFromLibraryWiringSourceTest {
     }
 
     /**
+     * R1's gate, in the suite the release gate actually runs. Forcing
+     * {@code applyDeleteFromLibraryVisibility} to always show the item was green, because the
+     * only leg covering it is the instrumented hidden-queue case, which the gate never
+     * executes. Asserted on the helper body (not the file) so the neighbouring toolbar code
+     * cannot satisfy it.
+     */
+    @Test
+    public void testVisibilityGateRequiresAServerBackedSongId() throws Exception {
+        String source = read("src/main/java/club/thatpetbff/gramophone/fragments/player/AbsPlayerFragment.java");
+        int start = source.indexOf("protected void applyDeleteFromLibraryVisibility");
+        assertTrue("the visibility helper must exist (R1)", start >= 0);
+        int end = source.indexOf("\n    }", start);
+        assertTrue("the visibility helper must have a body (R1)", end > start);
+        String body = source.substring(start, end);
+
+        assertTrue("the gate must read the current song (R1)",
+                body.contains("MusicPlayerRemote.getCurrentSong()"));
+        assertTrue("the gate must require a server id, not merely a non-null song (R1)",
+                body.contains("song.id != null"));
+        assertTrue("a blank/whitespace id must not count as server-backed (R1)",
+                body.contains("isEmpty()"));
+        assertTrue("the gate must drive the item's visibility (R1)", body.contains("setVisible("));
+        assertFalse("the gate may not hard-code the item visible (R1: no current song ⇒ hidden)",
+                body.contains("setVisible(true)"));
+    }
+
+    /**
+     * R1: both player themes own a toolbar, so a gate only wired into one of them would show
+     * the item under the other without ever consulting it.
+     */
+    @Test
+    public void testBothPlayerThemesApplyTheGateOnInflateAndSongChange() throws Exception {
+        for (String theme : new String[]{
+                "src/main/java/club/thatpetbff/gramophone/fragments/player/card/CardPlayerFragment.java",
+                "src/main/java/club/thatpetbff/gramophone/fragments/player/flat/FlatPlayerFragment.java"}) {
+            String source = read(theme);
+            String name = theme.substring(theme.lastIndexOf('/') + 1);
+            long calls = java.util.Arrays.stream(source.split("\n"))
+                    .map(String::trim)
+                    .filter(line -> line.startsWith("applyDeleteFromLibraryVisibility("))
+                    .count();
+            assertTrue(name + " must apply the R1 gate", calls >= 1);
+
+            int update = source.indexOf("private void updateCurrentSong()");
+            int setup = source.indexOf("private void setUpPlayerToolbar()");
+            assertTrue(name + " must refresh the gate when the current song changes (R1)",
+                    update >= 0 && source.indexOf("applyDeleteFromLibraryVisibility(", update)
+                            < source.indexOf("\n    }", update));
+            assertTrue(name + " must apply the gate when the toolbar menu is inflated (R1)",
+                    setup >= 0 && source.indexOf("applyDeleteFromLibraryVisibility(", setup)
+                            < source.indexOf("\n    }", setup));
+        }
+    }
+
+    /**
      * R3: confirming issues exactly one stock DELETE through the existing apiclient —
      * no new HTTP plumbing. (Call-site source contract; the count of one request per
      * confirm on-device is E2E-1's leg in QA.)
