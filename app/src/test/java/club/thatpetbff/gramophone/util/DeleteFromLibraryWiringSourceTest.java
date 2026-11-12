@@ -343,6 +343,35 @@ public class DeleteFromLibraryWiringSourceTest {
     }
 
     /**
+     * R11, cost and diagnosability. purgeCacheEntry runs on the Volley callback, which this
+     * app delivers on the UI thread, so a full {@code getSongs()} scan plus three file deletes
+     * is an ANR risk on a large library; and a silent {@code catch (Exception ignored)} makes a
+     * device-side purge failure invisible — the exact case the R11 instrumented test would have
+     * to catch. Asserted on the method body so another method's logging cannot satisfy it.
+     */
+    @Test
+    public void testCachePurgeIsNarrowAndLogsItsCatch() throws Exception {
+        String util = read("src/main/java/club/thatpetbff/gramophone/util/LibraryDeleteUtil.java");
+        int start = util.indexOf("public static void purgeCacheEntry");
+        assertTrue("the cache purge entry point must exist (R11)", start >= 0);
+        int end = util.indexOf("\n    }", start);
+        assertTrue("the cache purge must have a body (R11)", end > start);
+        // Comments are stripped so prose can neither satisfy this nor trip it.
+        String body = codeOnly(util.substring(start, end));
+
+        assertFalse("the purge must not scan the whole songs table on the UI thread (R11)",
+                body.contains("getSongs()"));
+        assertTrue("the purge must look up the single cached song by the deleted id (R11)",
+                body.contains("getSong(itemId)"));
+        assertTrue("the purge must still delete the cache row (R11)",
+                body.contains("deleteFromCache(itemId)"));
+        assertTrue("a swallowed purge failure must be logged, not silent (R11)",
+                body.contains("Log.w(") || body.contains("Log.e("));
+        assertFalse("the purge catch must not be named ignored / left empty (R11)",
+                body.contains("catch (Exception ignored)"));
+    }
+
+    /**
      * R11 + plan note 5: the cache purge runs on the success outcome only — the 404
      * quiet-success leaves cached bytes alone (the file may still exist on storage).
      */
@@ -366,6 +395,19 @@ public class DeleteFromLibraryWiringSourceTest {
      */
     private static List<String> deleteFromLibraryKeys() throws Exception {
         return stringKeysMatching(read("src/main/res/values/strings.xml"), "delete_from_library");
+    }
+
+    /** Drops comment lines, so a source contract asserts on code rather than prose. */
+    private static String codeOnly(String block) {
+        StringBuilder kept = new StringBuilder();
+        for (String line : block.split("\n")) {
+            String trimmed = line.trim();
+            if (trimmed.startsWith("//") || trimmed.startsWith("*") || trimmed.startsWith("/*")) {
+                continue;
+            }
+            kept.append(line).append('\n');
+        }
+        return kept.toString();
     }
 
     /** All {@code <string name="...">} keys in an XML document containing the given fragment. */

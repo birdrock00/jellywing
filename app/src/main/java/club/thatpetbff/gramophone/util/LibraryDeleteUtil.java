@@ -1,6 +1,7 @@
 package club.thatpetbff.gramophone.util;
 
 import android.content.Context;
+import android.util.Log;
 import android.widget.Toast;
 
 import java.io.File;
@@ -24,6 +25,8 @@ import org.jellyfin.apiclient.interaction.EmptyResponse;
  * (.tests.md limitation L1). UI code only turns outcomes into toasts and state changes.
  */
 public final class LibraryDeleteUtil {
+
+    private static final String TAG = "LibraryDeleteUtil";
 
     /** Outcome of one delete request, mapped once, off the UI (plan note 4). */
     public enum DeleteOutcome {
@@ -111,7 +114,10 @@ public final class LibraryDeleteUtil {
      */
     public static void purgeCacheEntry(String itemId) {
         try {
-            Song song = findSong(itemId);
+            // Keyed lookup rather than a table scan: this runs on the request callback, which
+            // this app delivers on the UI thread, and a full read of the songs table plus
+            // three file deletes there is an ANR risk on a large library.
+            Song song = App.getDatabase().songDao().getSong(itemId);
             App.getDatabase().cacheDao().deleteFromCache(itemId);
             String cacheRoot = PreferenceUtil.getInstance(App.getInstance()).getLocationCache();
             new File(cacheRoot, itemId).delete();
@@ -119,18 +125,11 @@ public final class LibraryDeleteUtil {
             if (song != null) {
                 new File(MusicUtil.getFileUri(song)).delete();
             }
-        } catch (Exception ignored) {
-            // A failed purge must not turn a server-side success into a false failure.
+        } catch (Exception e) {
+            // A failed purge must not turn a server-side success into a false failure — but it
+            // must leave a trace, or a device-side R11 breakage is invisible in the field.
+            Log.w(TAG, "cache purge failed for " + itemId, e);
         }
-    }
-
-    private static Song findSong(String id) {
-        for (Song song : App.getDatabase().songDao().getSongs()) {
-            if (id.equals(song.id)) {
-                return song;
-            }
-        }
-        return null;
     }
 
     private static final java.util.Set<String> inFlight =
