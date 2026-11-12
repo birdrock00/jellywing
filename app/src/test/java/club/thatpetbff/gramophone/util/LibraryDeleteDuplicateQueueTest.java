@@ -43,6 +43,26 @@ public class LibraryDeleteDuplicateQueueTest {
                 Arrays.asList(1, 3), positions);
     }
 
+    /**
+     * The LOOKUP being ascending is not enough: the removal loop has to walk the found indices
+     * highest-first. Removing a lower index first shifts every later index down by one, so the
+     * next removal names a position the queue no longer has, {@code MusicPlayerRemote}
+     * .removeFromQueue's {@code 0 <= p < size()} guard silently refuses it, and the second dead
+     * entry survives — with the whole test suite green, because nothing else exercised the order.
+     * This helper is the order, so the order is now assertable without a bound MusicService.
+     */
+    @Test
+    public void testRemovalOrderIsHighestIndexFirst() {
+        assertEquals("two dead entries must be removed highest-index-first — an ascending pass "
+                        + "makes the second index out of range and the guard silently skips it, "
+                        + "leaving a dead entry in the queue (R4)",
+                Arrays.asList(3, 1), LibraryDeleteUtil.removalOrder(Arrays.asList(1, 3)));
+        assertEquals("a single dead entry removes at its own index (R4)",
+                Arrays.asList(0), LibraryDeleteUtil.removalOrder(Arrays.asList(0)));
+        assertTrue("an item with no queue entry must produce no removal at all (R4: no queue edit)",
+                LibraryDeleteUtil.removalOrder(new ArrayList<Integer>()).isEmpty());
+    }
+
     @Test
     public void testSingleAndAbsentEntriesAreUnchanged() {
         List<Song> queue = Arrays.asList(song("a"), song("b"), song("a"));

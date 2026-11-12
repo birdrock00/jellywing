@@ -212,11 +212,12 @@ public final class LibraryDeleteUtil {
         }
         int first = positions.get(0);
         boolean wasCurrent = positions.contains(MusicPlayerRemote.getPosition());
-        // Every entry naming the deleted item goes, highest index first so the earlier indices
-        // stay valid against the live queue. A song queued twice would otherwise leave a second
-        // entry pointing at a file the server no longer has.
-        for (int i = positions.size() - 1; i >= 0; i--) {
-            MusicPlayerRemote.removeFromQueue(positions.get(i));
+        // Every entry naming the deleted item goes, in the order removalOrder() gives — highest
+        // index first, so the earlier indices stay valid against the live queue. A song queued
+        // twice would otherwise leave a second entry pointing at a file the server no longer has.
+        List<Integer> order = removalOrder(positions);
+        for (int i = 0; i < order.size(); i++) {
+            MusicPlayerRemote.removeFromQueue(order.get(i));
         }
         List<Song> remaining = MusicPlayerRemote.getPlayingQueue();
         if (remaining.isEmpty()) {
@@ -241,6 +242,17 @@ public final class LibraryDeleteUtil {
             }
         }
         return found;
+    }
+
+    /**
+     * The order in which {@link #removeFromQueueAndAdvance(String)} removes the found indices.
+     * Package-visible and pure so the JVM suite can assert the order itself, which needs no
+     * bound music service.
+     */
+    static List<Integer> removalOrder(List<Integer> ascending) {
+        List<Integer> highestFirst = new java.util.ArrayList<>(ascending);
+        java.util.Collections.reverse(highestFirst);
+        return highestFirst;
     }
 
     private static void toast(int stringRes) {

@@ -235,10 +235,25 @@ public class DeleteFromLibraryWiringSourceTest {
 
         assertTrue("the helper must remove the deleted entry (R4)",
                 body.contains("removeFromQueue("));
-        assertTrue("the helper must drop EVERY entry naming the deleted item — a song queued "
-                        + "twice must not leave a dead entry behind (R4)",
-                body.contains("positionsOfItem(")
-                        && body.contains("removeFromQueue(positions.get("));
+        assertTrue("the helper must find EVERY entry naming the deleted item (R4)",
+                body.contains("positionsOfItem("));
+        // The ORDER is what makes the every-entry removal correct, and it is now assertable in the
+        // JVM suite (LibraryDeleteDuplicateQueueTest#testRemovalOrderIsHighestIndexFirst). These
+        // three assertions are what stop the loop from quietly going around that helper — in round
+        // 2 nothing did, so an ascending loop that leaves a dead entry behind stayed green while a
+        // neighbouring test proved only that the lookup returns both indices.
+        assertTrue("the removal order must come from removalOrder(), the pure helper whose order "
+                        + "is asserted (R4)",
+                body.contains("removalOrder("));
+        assertFalse("the removal loop must not walk the ascending lookup directly: once a lower "
+                        + "index is removed the next one is out of range, removeFromQueue's "
+                        + "0 <= p < size() guard silently refuses it, and a dead entry stays "
+                        + "queued with the suite green (R4)",
+                body.contains("removeFromQueue(positions.get("));
+        assertTrue("the removal loop must consume the list removalOrder() returns — dropping back "
+                        + "to a single index would leave a twice-queued song's second entry "
+                        + "pointing at a file the server no longer has (R4)",
+                body.contains("removeFromQueue(order.get("));
         assertTrue("the helper must know whether the removed entry was the current one (R4)",
                 body.contains("getPosition()"));
         assertTrue("the helper must start the track that now occupies the index (R4)",
