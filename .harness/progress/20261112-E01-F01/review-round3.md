@@ -21,7 +21,7 @@ fully restored tree, because the campaign touched four files:
 | `./gradlew testDebugUnitTest` on the restored tree | **exit 0, 150 tests, 0 failures, 1 skipped** (`final_baseline.log`) — identical to the Orchestrator's baseline |
 | `git diff --stat -- app/` | **empty** after every single mutant and at the end |
 | Device left as found | `run-as … find cache/music -type f` → **no files**; committed APKs reinstalled; final `am instrument` → `OK (3 tests)` |
-| Method | `cp` backups (`bak/*.mutbak`), never `git checkout -- app/`; `adb install -r -d` + `am instrument -w -e class …`; **no** AGP `connectedAndroidTest`, **no** reboot, **no** destructive cycle, **no** credential or `~/.jwqa/**` read |
+| Method | `cp` backups (`bak/*.mutbak`), never `git checkout -- app/`; `adb install -r -d` + `am instrument -w -e class …`; **no** AGP `connectedAndroidTest`, **no** reboot, **no** destructive cycle, **no** credential or the operator's credential store read |
 
 My runner (`run_mut.sh`) clears `app/build/test-results/testDebugUnitTest` before each run and parses
 the XML, so a GREEN means "the test task executed and produced XML with zero failures" — not "the task
