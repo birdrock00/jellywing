@@ -25,6 +25,16 @@ import club.thatpetbff.gramophone.util.PreferenceUtil;
  * bytes — and an un-cached purge is a no-op. This test touches ONLY the local Room
  * database and the app's own cache directory: no server request, no media delete, so it
  * is safe to run without the QA backup protocol.
+ *
+ * <p><b>Self-restoring, on purpose.</b> The audio fixture's path comes from
+ * {@link club.thatpetbff.gramophone.util.MusicUtil#getFileUri(Song)}, which is built from
+ * artist/album/disc/track/title/container — NOT from the run-unique id — so it is the same
+ * path on every run. Before this class cleaned up after itself, one run against a broken purge
+ * left that file in place and every subsequent run then failed at "fixture file must be
+ * creatable" instead of at the R11 assertion it was actually testing (review round 2, F4: it
+ * poisoned the next mutant of a campaign and pointed the reader at the fixture rather than at
+ * the requirement). So every fixture file is reclaimed before it is created and every fixture
+ * file and row is removed in {@code finally}.
  */
 @MediumTest
 @RunWith(AndroidJUnit4.class)
@@ -41,25 +51,32 @@ public class CachePurgeOnDeleteInstrumentedTest {
         song.artistName = "QA Fixture";
         song.albumName = "QA Fixture";
         song.container = "m4a";
-        App.getDatabase().songDao().insertSongs(Collections.singletonList(song));
-        App.getDatabase().cacheDao().insertCache(new Cache(song));
-        assertTrue("fixture must start cached", App.getDatabase().cacheDao().isCached(id));
 
         String cacheRoot = PreferenceUtil.getInstance(app).getLocationCache();
         File direct = new File(cacheRoot, id);
         File download = new File(cacheRoot, "download/" + id);
         File audio = new File(club.thatpetbff.gramophone.util.MusicUtil.getFileUri(song));
-        for (File file : new File[]{direct, download, audio}) {
-            file.getParentFile().mkdirs();
-            assertTrue("fixture file must be creatable: " + file.getName(), file.createNewFile());
+
+        try {
+            App.getDatabase().songDao().insertSongs(Collections.singletonList(song));
+            App.getDatabase().cacheDao().insertCache(new Cache(song));
+            assertTrue("fixture must start cached", App.getDatabase().cacheDao().isCached(id));
+
+            for (File file : new File[]{direct, download, audio}) {
+                reclaimStaleFixture(file);
+                file.getParentFile().mkdirs();
+                assertTrue("fixture file must be creatable: " + file, file.createNewFile());
+            }
+
+            LibraryDeleteUtil.purgeCacheEntry(id);
+
+            assertFalse("cache row must be gone after purge (R11)", isCached(app, id));
+            assertFalse("cached file at cache root must be gone (R11)", direct.exists());
+            assertFalse("in-flight download file must be gone (R11)", download.exists());
+            assertFalse("downloaded audio file must be gone (R11)", audio.exists());
+        } finally {
+            restoreFixtureState(song, direct, download, audio);
         }
-
-        LibraryDeleteUtil.purgeCacheEntry(id);
-
-        assertFalse("cache row must be gone after purge (R11)", isCached(app, id));
-        assertFalse("cached file at cache root must be gone (R11)", direct.exists());
-        assertFalse("in-flight download file must be gone (R11)", download.exists());
-        assertFalse("downloaded audio file must be gone (R11)", audio.exists());
     }
 
     /**
@@ -93,7 +110,7 @@ public class CachePurgeOnDeleteInstrumentedTest {
                             + "delete is unconditional in purgeCacheEntry (R11)",
                     isCached(app, id));
         } finally {
-            App.getDatabase().cacheDao().deleteFromCache(id);
+            restoreFixtureState(orphan);
         }
     }
 
@@ -106,21 +123,72 @@ public class CachePurgeOnDeleteInstrumentedTest {
         Song keep = new Song();
         keep.id = keepId;
         keep.title = "QA Keep Fixture";
-        App.getDatabase().songDao().insertSongs(Collections.singletonList(keep));
-        App.getDatabase().cacheDao().insertCache(new Cache(keep));
         String cacheRoot = PreferenceUtil.getInstance(app).getLocationCache();
         File keepFile = new File(cacheRoot, keepId);
-        keepFile.getParentFile().mkdirs();
-        keepFile.createNewFile();
 
-        LibraryDeleteUtil.purgeCacheEntry(missingId);
+        try {
+            App.getDatabase().songDao().insertSongs(Collections.singletonList(keep));
+            App.getDatabase().cacheDao().insertCache(new Cache(keep));
+            reclaimStaleFixture(keepFile);
+            keepFile.getParentFile().mkdirs();
+            keepFile.createNewFile();
 
-        assertTrue("un-cached purge must not disturb other rows (R11)",
-                App.getDatabase().cacheDao().isCached(keepId));
-        assertTrue("un-cached purge must not disturb other files (R11)", keepFile.exists());
+            LibraryDeleteUtil.purgeCacheEntry(missingId);
 
-        // And it must tolerate its own files being absent entirely.
-        LibraryDeleteUtil.purgeCacheEntry(missingId);
+            assertTrue("un-cached purge must not disturb other rows (R11)",
+                    App.getDatabase().cacheDao().isCached(keepId));
+            assertTrue("un-cached purge must not disturb other files (R11)", keepFile.exists());
+
+            // And it must tolerate its own files being absent entirely.
+            LibraryDeleteUtil.purgeCacheEntry(missingId);
+        } finally {
+            restoreFixtureState(keep, keepFile);
+        }
+    }
+
+    /**
+     * Remove a fixture file left behind by an earlier run whose purge was broken, BEFORE
+     * {@code createNewFile()} is asked to succeed. The direct and download paths carry the
+     * run-unique id, but the audio path does not (see the class note), so without this the second
+     * run of a broken-purge campaign fails on fixture creation and never reaches the R11 assertion
+     * that is the reason the class exists.
+     *
+     * <p>Safe by construction: every path passed in is one this class itself creates under the
+     * debug app's own cache/download directories, and the audio path is the exact file
+     * {@code purgeCacheEntry} is under test to delete.
+     */
+    private static void reclaimStaleFixture(File file) {
+        file.delete();
+        assertFalse("a stale fixture file from an earlier run must be reclaimed before this run "
+                        + "creates it — otherwise a broken purge makes the NEXT run fail on "
+                        + "fixture creation instead of on the R11 assertion (F4): " + file,
+                file.exists());
+    }
+
+    /**
+     * Put the device back the way the run found it: no fixture rows, no fixture files. Runs in
+     * {@code finally} so a failing assertion cannot leave state that changes the meaning of the
+     * next run. Failures here are deliberately not swallowed into a name like {@code ignored}: if
+     * cleanup stops working, the next run must still be able to tell the difference — and it can,
+     * because {@link #reclaimStaleFixture(File)} asserts the reclaim.
+     */
+    private static void restoreFixtureState(Song song, File... fixtureFiles) {
+        for (File file : fixtureFiles) {
+            file.delete();
+        }
+        App.getDatabase().cacheDao().deleteFromCache(song.id);
+        deleteSongsRow(song.id);
+    }
+
+    /**
+     * Delete exactly the fixture's own {@code songs} row. {@code SongDao.deleteSongs()} is a
+     * whole-table {@code DELETE FROM songs}, which on a development emulator would wipe the real
+     * library the app has indexed; the fixture is keyed by a run-unique id, so the row is removed
+     * by that id instead.
+     */
+    private static void deleteSongsRow(String id) {
+        App.getDatabase().getOpenHelper().getWritableDatabase()
+                .delete("songs", "id = ?", new Object[]{id});
     }
 
     private static boolean isCached(App app, String id) {
