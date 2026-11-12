@@ -2,7 +2,7 @@
 id: E00-F01
 title: "Bootstrap: adapt the harness to this project"
 epic: E00-bootstrap
-status: in-review      # pending → spec-ready → in-progress → in-review → done
+status: done              # pending → spec-ready → in-progress → in-review → done
 sdd: true
 autonomous: false        # the human spec gate applies
 complexity: standard     # basis stated in Context (E17-F03)
