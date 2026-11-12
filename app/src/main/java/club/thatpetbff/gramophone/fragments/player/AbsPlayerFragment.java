@@ -13,6 +13,7 @@ import android.view.Menu;
 
 import club.thatpetbff.gramophone.R;
 import club.thatpetbff.gramophone.dialogs.AddToPlaylistDialog;
+import club.thatpetbff.gramophone.dialogs.DeleteFromLibraryDialog;
 import club.thatpetbff.gramophone.dialogs.CreatePlaylistDialog;
 import club.thatpetbff.gramophone.dialogs.SleepTimerDialog;
 import club.thatpetbff.gramophone.dialogs.SongDetailDialog;
@@ -70,6 +71,12 @@ public abstract class AbsPlayerFragment extends AbsMusicServiceFragment implemen
             return true;
         } else if (itemId == R.id.action_save_queue) {
             CreatePlaylistDialog.create(MusicPlayerRemote.getPlayingQueue()).show(getParentFragmentManager(), "ADD_TO_PLAYLIST");
+            return true;
+        } else if (itemId == R.id.action_delete_from_library) {
+            if (song != null) {
+                DeleteFromLibraryDialog.create(song)
+                        .show(getParentFragmentManager(), DeleteFromLibraryDialog.TAG);
+            }
             return true;
         } else if (itemId == R.id.action_details) {
             SongDetailDialog.create(song).show(getParentFragmentManager(), SongDetailDialog.TAG);

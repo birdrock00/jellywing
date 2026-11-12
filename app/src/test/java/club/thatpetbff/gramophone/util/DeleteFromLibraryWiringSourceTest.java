@@ -72,6 +72,31 @@ public class DeleteFromLibraryWiringSourceTest {
                 deleteItem.contains("@string/action_delete_from_library"));
     }
 
+    /**
+     * R2: selecting Delete-from-library must open the confirmation dialog, and the
+     * fragment handler must never reach the API directly — every network call lives
+     * behind the dialog's positive button in LibraryDeleteUtil.
+     */
+    @Test
+    public void testHandlerOpensDialogNotApiDirectly() throws Exception {
+        String source = read("src/main/java/club/thatpetbff/gramophone/fragments/player/AbsPlayerFragment.java");
+        int handlerStart = source.indexOf("onMenuItemClick");
+        assertTrue("onMenuItemClick must exist", handlerStart >= 0);
+        int handlerEnd = source.indexOf("protected void toggleFavorite", handlerStart);
+        String handler = source.substring(handlerStart, handlerEnd > 0 ? handlerEnd : source.length());
+        int branch = handler.indexOf("R.id.action_delete_from_library");
+        assertTrue("onMenuItemClick must branch on the delete item (R2)", branch >= 0);
+        int branchEnd = handler.indexOf("}", handler.indexOf("return true", branch));
+        assertTrue("Delete branch must be present", branchEnd > branch);
+        String deleteBranch = handler.substring(branch, branchEnd);
+        assertTrue("Delete branch must open DeleteFromLibraryDialog (R2)",
+                deleteBranch.contains("DeleteFromLibraryDialog"));
+        assertFalse("Handler must not call the API DeleteItem directly — dialog first (R2/R3)",
+                deleteBranch.contains("DeleteItem"));
+        assertFalse("Handler must not touch LibraryDeleteUtil directly — dialog first (R2)",
+                deleteBranch.contains("LibraryDeleteUtil"));
+    }
+
     private static String read(String relativeToAppModule) throws Exception {
         return new String(Files.readAllBytes(
                 new File(relativeToAppModule).toPath()), StandardCharsets.UTF_8);
