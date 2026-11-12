@@ -196,6 +196,41 @@ public class DeleteFromLibraryWiringSourceTest {
                 beforeSwitch.contains("endDelete(itemId)"));
     }
 
+    /**
+     * R10 (code leg; E2E-5 with QA): on success a suppression guard armed for the
+     * deleted id is cleared — a stale guard would otherwise persist against a dead item
+     * — and the advance runs before the guard cleanup so subsequent session reports name
+     * the new current item. MusicService's own semantics are untouched (call-only).
+     */
+    @Test
+    public void testSuccessClearsStaleSuppressionGuardOnlyForTheDeletedId() throws Exception {
+        String util = read("src/main/java/club/thatpetbff/gramophone/util/LibraryDeleteUtil.java");
+        int start = util.indexOf("case SUCCESS:");
+        assertTrue("success branch must exist", start >= 0);
+        int end = util.indexOf("break;", start);
+        String block = util.substring(start, end > 0 ? end : util.length());
+        assertTrue("success must clear the guard via the existing helper (R10)",
+                block.contains("clearSuppressionIfOurs("));
+        assertTrue("advance must run inside the success branch (R10 sequencing)",
+                block.contains("removeFromQueueAndAdvance("));
+        int advance = block.indexOf("removeFromQueueAndAdvance(");
+        int clear = block.indexOf("clearSuppressionIfOurs(");
+        assertTrue("advance precedes guard cleanup so reports follow the new item (R10)",
+                advance < clear);
+
+        int guard = util.indexOf("private static void clearSuppressionIfOurs");
+        assertTrue("guard helper must exist", guard >= 0);
+        String guardBody = util.substring(guard, util.indexOf("\n    }", guard));
+        assertTrue("guard is cleared ONLY when it names the deleted id (R10)",
+                guardBody.contains("MusicService.isServerReportSuppressed(itemId)"));
+        assertTrue(guardBody.contains("MusicService.clearServerReportSuppression()"));
+        // The 404 quiet-success branch must NOT clear the guard (plan note 5).
+        int gone = util.indexOf("case ALREADY_GONE:");
+        int goneEnd = util.indexOf("break;", gone);
+        assertFalse("404 path must not clear the suppression guard (success-only)",
+                util.substring(gone, goneEnd).contains("clearSuppressionIfOurs"));
+    }
+
     private static long countCodeLinesWith(String source, String needle) {
         return java.util.Arrays.stream(source.split("\n"))
                 .map(String::trim)

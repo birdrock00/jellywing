@@ -9,6 +9,7 @@ import club.thatpetbff.gramophone.App;
 import club.thatpetbff.gramophone.R;
 import club.thatpetbff.gramophone.helper.MusicPlayerRemote;
 import club.thatpetbff.gramophone.model.Song;
+import club.thatpetbff.gramophone.service.MusicService;
 
 import org.jellyfin.apiclient.interaction.EmptyResponse;
 
@@ -122,6 +123,7 @@ public final class LibraryDeleteUtil {
             case SUCCESS:
                 toast(R.string.delete_from_library_success);
                 removeFromQueueAndAdvance(itemId);
+                clearSuppressionIfOurs(itemId);
                 FavoritesStore.notifyChanged();
                 break;
             case ALREADY_GONE:
@@ -140,6 +142,18 @@ public final class LibraryDeleteUtil {
             default:
                 toast(R.string.delete_from_library_failed);
                 break;
+        }
+    }
+
+    /**
+     * R10: a suppression guard armed for the deleted id would otherwise persist (it is
+     * restored from disk on restart) against a dead item. Clears only when the guard
+     * names this id; the existing MusicService semantics are called, never altered.
+     * Runs after the advance so the next session report already names the new item.
+     */
+    private static void clearSuppressionIfOurs(String itemId) {
+        if (MusicService.isServerReportSuppressed(itemId)) {
+            MusicService.clearServerReportSuppression();
         }
     }
 
