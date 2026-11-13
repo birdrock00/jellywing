@@ -19,10 +19,15 @@
 #
 # Usage:
 #   tools/qa-delete-cycle.sh probe
-#   tools/qa-delete-cycle.sh run <e2eMethodName> [--scan-delegated] [--leg VALUE]
+#   tools/qa-delete-cycle.sh run <e2eMethodName> [--expects delete|no-delete] [--scan-delegated] [--leg VALUE]
 #   tools/qa-delete-cycle.sh restore            # resume/re-run P5->P8 after an abort
 # Options:
 #   --fixture NAME    fixture track name (default: Jai Hind)
+#   --expects MODE    what the server must show after the act: 'delete' asserts P3's
+#                     GET /Items/{id} == 404 (default when the flag is ABSENT); 'no-delete'
+#                     asserts P3n's cancel guarantee (item still 200, holders unchanged) for
+#                     non-destructive legs such as e2e4_cancelNoop. An empty or unrecognized
+#                     VALUE is a hard error (exit 2), never a silent default.
 #   --playlist NAME   fixture playlist name (default: aurral-udta-teer)
 #   --log-dir DIR     log/backup target; MUST be outside the repo (default: mktemp -d)
 #   --device SERIAL   adb target; must be an emulator (default: the sole emulator)
@@ -36,6 +41,8 @@ LOG_DIR="${TMPDIR:-/tmp}/qa-delete-cycle-$(date +%Y%m%d-%H%M%S)"
 DEVICE=""
 METHOD_CLASS="club.thatpetbff.gramophone.ui.DeleteFromLibraryE2eTest"
 SCAN_DELEGATED=0
+EXPECTS=""
+EXPECTS_GIVEN=0
 LEG=""
 SUBCMD=""
 E2E_METHOD=""
@@ -97,6 +104,7 @@ while [[ $# -gt 0 ]]; do
         --device)    DEVICE=$2; shift ;;
         --method-class) METHOD_CLASS=$2; shift ;;
         --scan-delegated) SCAN_DELEGATED=1 ;;
+        --expects)   EXPECTS_GIVEN=1; EXPECTS=${2:-}; shift ;;
         --leg)       LEG=$2; shift ;;
         --tag)       STATE_TAG=$2; shift ;;
         *) echo "unknown argument: $1" >&2; exit 2 ;;
@@ -104,10 +112,20 @@ while [[ $# -gt 0 ]]; do
     shift
 done
 [[ -n $SUBCMD ]] || {
-    echo "usage: qa-delete-cycle.sh probe | run <e2eMethodName> [--scan-delegated] [--leg VALUE] | restore [--log-dir DIR]" >&2
-    echo "       options: --fixture NAME --playlist NAME --device SERIAL --method-class CLASS --tag TAG" >&2
+    echo "usage: qa-delete-cycle.sh probe | run <e2eMethodName> [--expects delete|no-delete] [--scan-delegated] [--leg VALUE] | restore [--log-dir DIR]" >&2
+    echo "       options: --fixture NAME --playlist NAME --device SERIAL --method-class CLASS --tag TAG --expects delete|no-delete" >&2
     exit 2
 }
+
+# Explicit-per-invocation server expectation (fix 2). The DEFAULT applies only when the
+# flag is ABSENT; an empty or unrecognized VALUE is a hard error, so a destructive leg can
+# never lose its 404 assertion through a typo or a dropped argument.
+if [[ $EXPECTS_GIVEN == 0 ]]; then
+    EXPECTS=delete
+elif [[ $EXPECTS != delete && $EXPECTS != no-delete ]]; then
+    echo "--expects must be 'delete' or 'no-delete' (got '${EXPECTS:-<empty>}'); refusing to guess — a wrong guess silently drops the P3 404 assertion" >&2
+    exit 2
+fi
 
 REPO_ROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
 mkdir -p "$LOG_DIR"
@@ -241,7 +259,8 @@ PY
         held=no; grep -qxF "$ITEM_ID" <<< "$ids" && held=yes
         printf '%s\t%s\t%s\n' "$pid" "$total" "$held" >> "$ALL_SNAPSHOT"
         # P7 before-snapshot of every playlist's id set (stored in the log dir, never the repo).
-        pyf "$STATE_DIR/pl-$pid.json" > "$STATE_DIR/ids-before-$pid.json" <<'PY'
+        # Filename MUST stay in sync with the read in p7_audit (both use ids-before-<pid>.txt).
+        pyf "$STATE_DIR/pl-$pid.json" > "$STATE_DIR/ids-before-$pid.txt" <<'PY'
 import json,sys
 print("\n".join(x.get("Id","") for x in json.load(open(sys.argv[1])).get("Items",[])))
 PY
@@ -352,6 +371,83 @@ PY
     phase P3 PASS "GET /Items/{id} 404; no holder lists the dead id (correct membership endpoint)"
 }
 
+# P3n — cancel guarantee for a NON-destructive leg (e2e4_cancelNoop).
+# p3_assert_server's 404 would fail a passing cancel test (the item is designed to stay),
+# but a cancel leg still owes a positive assertion, so nothing is skipped: the item is
+# still served 200 and every holder in H still lists its P0 entry count and the item.
+# The phase has its own ID so the report shows it actually ran.
+p3n_assert_cancel() {
+    local code body=$STATE_DIR/after-cancel.json i pid total ids
+    code=$(api GET "/Items/$ITEM_ID" "$body") || true
+    [[ $code == 200 ]] || die P3n "GET /Items/{id} returned HTTP $code after a cancelled dialog — expected 200: cancel must leave the item on the server"
+    for i in "${!HOLDING_PIDS[@]}"; do
+        pid=${HOLDING_PIDS[$i]}
+        code=$(api GET "/Playlists/$pid/Items?UserId=$QA_USER" "$STATE_DIR/pl-after-$pid.json")
+        [[ $code == 200 ]] || die P3n "membership endpoint HTTP $code for a known holder — failing loudly instead of faking it (B1.3)"
+        total=$(p0_total_items "$STATE_DIR/pl-after-$pid.json")
+        [[ $total == "${HOLDING_COUNTS[$i]}" ]] || die P3n "holder ${HOLDING_NAMES[$i]} lists $total entries after cancel, expected its P0 count ${HOLDING_COUNTS[$i]} — cancel must not mutate a holder"
+        ids=$(pyf "$STATE_DIR/pl-after-$pid.json" <<'PY'
+import json,sys
+print("\n".join(x.get("Id","") for x in json.load(open(sys.argv[1])).get("Items",[])))
+PY
+) || die P3n "holder item list did not parse after cancel — failing loudly (B1.3)"
+        grep -qxF "$ITEM_ID" <<< "$ids" || die P3n "holder ${HOLDING_NAMES[$i]} no longer lists the item after a cancelled dialog (P3n)"
+    done
+    phase P3n PASS "GET /Items/{id} 200 after cancel; every holder still lists its P0 entry count and the item"
+}
+
+# ---------------------------------------------------------------- P3b delegated library scan (B6)
+# e2e2_playlistCleanAfterScan asserts holder cleanliness AFTER a real library scan, so the
+# driver must trigger the scan and await its completion itself: asserting cleanliness
+# without a completed scan is exactly the vacuity this feature keeps hitting (B6). Uses the
+# stock POST /Library/Refresh endpoint, which needs admin rights — a non-2xx is a FAIL that
+# names the operator step, never a pass.
+p3b_scan() {
+    local code trigger i pid ids waited=0 limit=900 clean
+    code=$(api POST "/Library/Refresh" "$STATE_DIR/refresh.json") || true
+    trigger=$code
+    case $trigger in
+        2*) : ;;
+        *) die P3b "POST /Library/Refresh returned HTTP $trigger — the QA token cannot trigger a library scan. OPERATOR STEP REQUIRED: run the scan from the dashboard (or supply an admin-capable token); this leg may not report green without a completed scan (B6)" ;;
+    esac
+    # Completion is observable only through its effect, so poll the B1.3 membership
+    # endpoint until no holder resolves the dead id, bounded by $limit.
+    clean=0
+    while (( waited < limit )); do
+        clean=1
+        for i in "${!HOLDING_PIDS[@]}"; do
+            pid=${HOLDING_PIDS[$i]}
+            code=$(api GET "/Playlists/$pid/Items?UserId=$QA_USER" "$STATE_DIR/pl-scan-$pid.json")
+            [[ $code == 200 ]] || die P3b "membership endpoint HTTP $code while awaiting the delegated scan (B1.3 — never read as absent)"
+            ids=$(pyf "$STATE_DIR/pl-scan-$pid.json" <<'PY'
+import json,sys
+print("\n".join(x.get("Id","") for x in json.load(open(sys.argv[1])).get("Items",[])))
+PY
+) || die P3b "holder item list did not parse during the delegated scan — failing loudly (B1.3)"
+            if grep -qxF "$ITEM_ID" <<< "$ids"; then
+                clean=0
+            fi
+        done
+        [[ $clean == 1 ]] && break
+        sleep 15; waited=$((waited + 15))
+    done
+    [[ $clean == 1 ]] || die P3b "the delegated scan did not complete within ${limit}s — a holder still resolves the dead id; the operator must confirm the scan in the dashboard before this leg can report (B6: no scan, no green)"
+    # Post-completion re-assertion of holder cleanliness against every pid in H, on a fresh
+    # query per holder (the verdict is never carried over from the poll loop's last read).
+    for i in "${!HOLDING_PIDS[@]}"; do
+        pid=${HOLDING_PIDS[$i]}
+        code=$(api GET "/Playlists/$pid/Items?UserId=$QA_USER" "$STATE_DIR/pl-scan-clean-$pid.json")
+        [[ $code == 200 ]] || die P3b "membership endpoint HTTP $code for a known holder after the scan (B1.3 — never read as absent)"
+        ids=$(pyf "$STATE_DIR/pl-scan-clean-$pid.json" <<'PY'
+import json,sys
+print("\n".join(x.get("Id","") for x in json.load(open(sys.argv[1])).get("Items",[])))
+PY
+) || die P3b "holder item list did not parse after the scan — failing loudly (B1.3)"
+        grep -qxF "$ITEM_ID" <<< "$ids" && die P3b "holder ${HOLDING_NAMES[$i]} still resolves the dead id after a completed scan (P3b/B6)"
+    done
+    phase P3b PASS "library scan triggered (POST /Library/Refresh HTTP $trigger) and completed; holder cleanliness re-asserted post-scan for all ${#HOLDING_PIDS[@]} holder(s) (B6)"
+}
+
 # ---------------------------------------------------------------- P5 restore (operator procedure)
 poll_reindexed() {
     local waited=0 limit=900 code ids n
@@ -449,7 +545,13 @@ import json,sys
 print("\n".join(sorted(x.get("Id","") for x in json.load(open(sys.argv[1])).get("Items",[]))))
 PY
 )
-        before=$(cat "$STATE_DIR/ids-before-$pid.txt" 2>/dev/null || echo "")
+        # Same filename as the p0_probe write site. An absent/empty snapshot is a LOUD
+        # failure: comparing against "" would flip the P7 verdict in either direction, so a
+        # restore after a process restart reports a missing snapshot instead of silently
+        # auditing against empty.
+        local snap="$STATE_DIR/ids-before-$pid.txt"
+        [[ -s $snap ]] || die P7 "no before-snapshot for a scanned playlist — the as-found audit cannot run (never compared against empty)"
+        before=$(cat "$snap")
         if [[ $held == yes ]]; then
             grep -qxF "$NEW_ID" <<< "$after" || die P7 "a P0 holder no longer holds the restored item (P7)"
         else
@@ -498,11 +600,31 @@ main() {
             ;;
         run)
             [[ -n $E2E_METHOD ]] || { echo "run needs an E2E method name" >&2; exit 2; }
+            # B6: e2e2 asserts cleanliness AFTER a scan. Running it with no delegated scan
+            # available would report green on an assertion that never had its precondition,
+            # so it refuses rather than runs.
+            if [[ $E2E_METHOD == e2e2* ]]; then
+                [[ $EXPECTS == delete ]] || {
+                    echo "refusing to run $E2E_METHOD with --expects $EXPECTS: it is a destructive leg and would lose its P3 404 assertion" >&2
+                    exit 2
+                }
+                [[ $SCAN_DELEGATED == 1 ]] || {
+                    echo "refusing to run $E2E_METHOD without --scan-delegated: the OPERATOR STEP it needs is a delegated library scan (the driver POSTs /Library/Refresh and awaits completion; needs an admin-capable token, else trigger the scan in the dashboard). Asserting post-scan cleanliness with no scan is the vacuity B6 forbids, so this leg is NOT RUN." >&2
+                    exit 2
+                }
+            fi
             check_device
             p0_probe
             p1_backup
             run_instrument "$E2E_METHOD"
-            p3_assert_server
+            # Server expectation is explicit per invocation (see --expects); a destructive
+            # leg always runs p3_assert_server's 404, a cancel leg runs P3n instead.
+            if [[ $EXPECTS == delete ]]; then
+                p3_assert_server
+                [[ $SCAN_DELEGATED == 1 ]] && p3b_scan
+            else
+                p3n_assert_cancel
+            fi
             restore_sequence || die P5 "restore did not complete — STOP, do NOT retry the delete; hand the operator BACKUP_FILE + sha256 (see $STATE_DIR/run.env)"
             p6_readd
             p7_audit
