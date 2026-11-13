@@ -1,0 +1,7 @@
+# Methods permitted to call assumeTrue in app/src/androidTest.
+# R-EV: an assumption failure prints as SUCCESS, so a skip is indistinguishable from a pass.
+# Every entry is a deliberate exception with a reason; new E2E methods must fail() instead.
+#
+# e2e4_cancelNoop: pre-existing non-destructive leg, predates the R-EV rule; it assumes driver
+# args and a synced fixture rather than failing, and is being migrated when next touched.
+e2e4_cancelNoop
