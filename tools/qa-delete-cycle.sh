@@ -199,6 +199,54 @@ PY
 }
 
 p0_total_items() { python3 -c 'import json,sys;print(json.load(open(sys.argv[1])).get("TotalRecordCount",-1))' "$1"; }
+
+# QA_PAGE_LIMIT — page size asked for on EVERY playlist membership read; the server default
+# page is small enough to truncate a holder list and forge an "absent" verdict (C-1).
+QA_PAGE_LIMIT=${QA_PAGE_LIMIT:-1000}
+
+# playlist_items_checked <playlistId> <outfile> <phase-label> [context]
+# The ONE sanctioned playlist membership read (C-1): every phase routes through here so the
+# anti-false-green checks live in exactly one place and a future edit cannot drop one.
+#   GET /Playlists/{id}/Items?UserId=…&Limit=$QA_PAGE_LIMIT&X-QA-Read=<nonce>
+#   (the UserId form is mandatory — /Items/{id}/Items 404s for a playlist id, B1.3)
+#   - X-QA-Read nonce: cache-buster on every read, so an absence verdict is never served
+#     from a stale cache; it is a query param, so it defeats intermediary caches too.
+#   - dies <phase-label> on non-200          (B1.3: never read a bad status as "absent")
+#   - dies <phase-label> if TotalRecordCount is absent (-1) and Items is non-empty:
+#     a server that stops reporting it must not silently downgrade the gate.
+#   - dies <phase-label> if len(Items) < TotalRecordCount (page truncation) after ONE
+#     retry with Limit raised to the reported total — bounded, never a silent shrink and
+#     never a paging loop that can spin forever. TotalRecordCount 0 with empty Items is
+#     legitimately empty and passes.
+# Echoes the number of Items on stdout; the JSON body stays in <outfile>. CALLERS MUST
+# invoke it bare (NOT inside $(…)): die() prints its PHASE FAIL and report to stdout, and
+# command substitution would capture — i.e. swallow — exactly the failure output.
+playlist_items_checked() {
+    local pid=$1 out=$2 label=$3 ctx=${4:-membership read}
+    local limit=$QA_PAGE_LIMIT attempt nonce code total n
+    for attempt in first retry; do
+        nonce=$(date +%s%N)$RANDOM
+        code=$(api GET "/Playlists/$pid/Items?UserId=$QA_USER&Limit=$limit&X-QA-Read=$nonce" "$out")
+        [[ $code == 200 ]] || die "$label" "playlist items query (GET /Playlists/{id}/Items) returned HTTP $code for playlist $pid ($ctx) — failing loudly instead of reading it as 'not held' (B1.3)"
+        total=$(p0_total_items "$out" 2>/dev/null) || die "$label" "playlist items body for $pid ($ctx) did not parse — failing loudly (B1.3)"
+        n=$(pyf "$out" <<'PY'
+import json,sys
+print(len(json.load(open(sys.argv[1])).get("Items",[])))
+PY
+) || die "$label" "playlist items body for $pid ($ctx) did not parse — failing loudly (B1.3)"
+        # Truncation gate: a partial listing must never shrink into an "absent" verdict.
+        if [[ $total != -1 && $n -lt $total ]]; then
+            [[ $attempt == first && $total -gt $limit ]] || die "$label" "playlist $pid ($ctx) returned a TRUNCATED listing: $n of $total items (Limit=$limit) — an id missing from a partial listing proves nothing; refusing to read it as absent (C-1)"
+            limit=$total
+            continue
+        fi
+        # Missing-reporting gate: TotalRecordCount absent with non-empty Items ⇒ die.
+        [[ $total != -1 || $n == 0 ]] || die "$label" "playlist $pid ($ctx) returned $n items with NO TotalRecordCount in the body — the truncation gate cannot be verified; refusing to accept this listing as evidence (C-1)"
+        echo "$n"
+        return 0
+    done
+}
+
 playlist_ids_from() { python3 -c 'import json,sys;[print(i["Id"]) for i in json.load(open(sys.argv[1])).get("Items",[])]' "$1"; }
 
 p0_probe() {
@@ -250,10 +298,10 @@ PY
     HOLDING_PIDS=(); HOLDING_COUNTS=(); HOLDING_NAMES=(); : > "$ALL_SNAPSHOT"
     local pid c ids held total pname
     for pid in "${ALL_PIDS[@]}"; do
-        code=$(api GET "/Playlists/$pid/Items?UserId=$QA_USER" "$STATE_DIR/pl-$pid.json")
-        # Fail LOUDLY on 404/empty (B1.3): a wrong-endpoint or parse failure must never
-        # masquerade as "this playlist does not hold the fixture".
-        [[ $code == 200 ]] || die P0 "playlist items query (GET /Playlists/{id}/Items) returned HTTP $code for a playlist — failing loudly instead of reading it as 'not held' (B1.3)"
+        # Fail LOUDLY on 404/empty/truncation/stale cache (B1.3/C-1): a wrong-endpoint, cached
+        # or page-truncated listing must never masquerade as "this playlist does not hold the
+        # fixture" — the checks live in playlist_items_checked, not at this call site.
+        playlist_items_checked "$pid" "$STATE_DIR/pl-$pid.json" P0 "P0 holder scan"
         total=$(p0_total_items "$STATE_DIR/pl-$pid.json")
         ids=$(pyf "$STATE_DIR/pl-$pid.json" <<'PY'
 import json,sys
@@ -362,8 +410,7 @@ p3_assert_server() {
     local i pid total ids
     for i in "${!HOLDING_PIDS[@]}"; do
         pid=${HOLDING_PIDS[$i]}
-        code=$(api GET "/Playlists/$pid/Items?UserId=$QA_USER" "$STATE_DIR/pl-after-$pid.json")
-        [[ $code == 200 ]] || die P3 "membership endpoint HTTP $code for a known holder — failing loudly instead of faking cleanliness (B1.3)"
+        playlist_items_checked "$pid" "$STATE_DIR/pl-after-$pid.json" P3 "post-delete read for a known holder — never faking cleanliness (B1.3/C-1)"
         total=$(p0_total_items "$STATE_DIR/pl-after-$pid.json")
         ids=$(pyf "$STATE_DIR/pl-after-$pid.json" <<'PY'
 import json,sys
@@ -389,8 +436,7 @@ p3n_assert_cancel() {
     [[ $code == 200 ]] || die P3n "GET /Items/{id} returned HTTP $code after a cancelled dialog — expected 200: cancel must leave the item on the server"
     for i in "${!HOLDING_PIDS[@]}"; do
         pid=${HOLDING_PIDS[$i]}
-        code=$(api GET "/Playlists/$pid/Items?UserId=$QA_USER" "$STATE_DIR/pl-after-$pid.json")
-        [[ $code == 200 ]] || die P3n "membership endpoint HTTP $code for a known holder — failing loudly instead of faking it (B1.3)"
+        playlist_items_checked "$pid" "$STATE_DIR/pl-after-$pid.json" P3n "post-cancel read for a known holder (B1.3/C-1)"
         total=$(p0_total_items "$STATE_DIR/pl-after-$pid.json")
         [[ $total == "${HOLDING_COUNTS[$i]}" ]] || die P3n "holder ${HOLDING_NAMES[$i]} lists $total entries after cancel, expected its P0 count ${HOLDING_COUNTS[$i]} — cancel must not mutate a holder"
         ids=$(pyf "$STATE_DIR/pl-after-$pid.json" <<'PY'
@@ -430,8 +476,7 @@ p3b_scan() {
         clean=1
         for i in "${!HOLDING_PIDS[@]}"; do
             pid=${HOLDING_PIDS[$i]}
-            code=$(api GET "/Playlists/$pid/Items?UserId=$QA_USER" "$STATE_DIR/pl-scan-$pid.json")
-            [[ $code == 200 ]] || die P3b "membership endpoint HTTP $code while awaiting the delegated scan (B1.3 — never read as absent)"
+            playlist_items_checked "$pid" "$STATE_DIR/pl-scan-$pid.json" P3b "poll while awaiting the delegated scan — never read as absent (B1.3/C-1)"
             ids=$(pyf "$STATE_DIR/pl-scan-$pid.json" <<'PY'
 import json,sys
 print("\n".join(x.get("Id","") for x in json.load(open(sys.argv[1])).get("Items",[])))
@@ -449,8 +494,7 @@ PY
     # query per holder (the verdict is never carried over from the poll loop's last read).
     for i in "${!HOLDING_PIDS[@]}"; do
         pid=${HOLDING_PIDS[$i]}
-        code=$(api GET "/Playlists/$pid/Items?UserId=$QA_USER" "$STATE_DIR/pl-scan-clean-$pid.json")
-        [[ $code == 200 ]] || die P3b "membership endpoint HTTP $code for a known holder after the scan (B1.3 — never read as absent)"
+        playlist_items_checked "$pid" "$STATE_DIR/pl-scan-clean-$pid.json" P3b "post-scan cleanliness re-assert for a known holder — never read as absent (B1.3/C-1)"
         ids=$(pyf "$STATE_DIR/pl-scan-clean-$pid.json" <<'PY'
 import json,sys
 print("\n".join(x.get("Id","") for x in json.load(open(sys.argv[1])).get("Items",[])))
@@ -513,8 +557,7 @@ p6_readd() {
         [[ $code == 204 || $code == 200 ]] || die P6 "stock add-to-playlist failed for a holder (HTTP $code) — P6 count cannot be restored"
         waited=0
         while (( waited < 120 )); do
-            code=$(api GET "/Playlists/$pid/Items?UserId=$QA_USER" "$STATE_DIR/pl-readd-$pid.json")
-            [[ $code == 200 ]] || die P6 "membership endpoint HTTP $code during re-add verification (B1.3 — never read as absent)"
+            playlist_items_checked "$pid" "$STATE_DIR/pl-readd-$pid.json" P6 "re-add verification — never read as absent (B1.3/C-1)"
             total=$(p0_total_items "$STATE_DIR/pl-readd-$pid.json")
             [[ $total == "$target" ]] && break
             sleep 5; waited=$((waited + 5))
@@ -551,8 +594,7 @@ PY
 
     local pid_line
     while IFS=$'\t' read -r pid _ held; do
-        code=$(api GET "/Playlists/$pid/Items?UserId=$QA_USER" "$STATE_DIR/pl-audit-$pid.json")
-        [[ $code == 200 ]] || die P7 "audit membership query HTTP $code (B1.3)"
+        playlist_items_checked "$pid" "$STATE_DIR/pl-audit-$pid.json" P7 "as-found audit membership read (B1.3/C-1)"
         after=$(pyf "$STATE_DIR/pl-audit-$pid.json" <<'PY'
 import json,sys
 print("\n".join(sorted(x.get("Id","") for x in json.load(open(sys.argv[1])).get("Items",[]))))
