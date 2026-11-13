@@ -27,7 +27,14 @@
 #                     GET /Items/{id} == 404 (default when the flag is ABSENT); 'no-delete'
 #                     asserts P3n's cancel guarantee (item still 200, holders unchanged) for
 #                     non-destructive legs such as e2e4_cancelNoop. An empty or unrecognized
-#                     VALUE is a hard error (exit 2), never a silent default.
+#                     VALUE is a hard error (exit 2), never a silent default. e2e4_cancelNoop
+#                     is refused with the default 'delete' (it would assert a 404 on an item a
+#                     correct cancel leaves in place); pass --expects no-delete for it.
+#   --scan-delegated  required for e2e2*: the driver owns the library scan in p3b_scan (POST
+#                     /Library/Refresh + poll to completion + fresh per-holder re-assertion),
+#                     which runs AFTER the blocking instrumented run returns; e2e2 then proves
+#                     only its in-test half and prints a PARTIAL declaration instead of polling
+#                     for a scan that cannot have started yet.
 #   --playlist NAME   fixture playlist name (default: aurral-udta-teer)
 #   --log-dir DIR     log/backup target; MUST be outside the repo (default: mktemp -d)
 #   --device SERIAL   adb target; must be an emulator (default: the sole emulator)
@@ -397,13 +404,19 @@ PY
 }
 
 # ---------------------------------------------------------------- P3b delegated library scan (B6)
-# e2e2_playlistCleanAfterScan asserts holder cleanliness AFTER a real library scan, so the
-# driver must trigger the scan and await its completion itself: asserting cleanliness
-# without a completed scan is exactly the vacuity this feature keeps hitting (B6). Uses the
-# stock POST /Library/Refresh endpoint, which needs admin rights — a non-2xx is a FAIL that
-# names the operator step, never a pass.
+# In delegated mode e2e2_playlistCleanAfterScan asserts only what it can observe in-test and
+# prints a PARTIAL declaration; THIS function is the post-scan half of that leg — the only
+# place on the delegated path where a scan exists, so it is the only place cleanliness after
+# a scan can be asserted. run_instrument is synchronous (`am instrument -w`), so this runs
+# strictly AFTER the instrumentation returns; the test never waits here for a scan that has
+# not been issued yet. Asserting cleanliness without a completed scan is exactly the vacuity
+# this feature keeps hitting (B6). Uses the stock POST /Library/Refresh endpoint, which needs
+# admin rights — a non-2xx is a FAIL that names the operator step, never a pass.
 p3b_scan() {
     local code trigger i pid ids waited=0 limit=900 clean
+    # Every loop below iterates over HOLDING_PIDS; with an empty set they all no-op, `clean`
+    # stays 1 and this function would report green having asserted nothing. Require a holder.
+    [[ ${#HOLDING_PIDS[@]} -gt 0 ]] || die P3b "holder set is empty (H = 0) — post-scan cleanliness over zero holders proves nothing (B1.3); this leg may not report green"
     code=$(api POST "/Library/Refresh" "$STATE_DIR/refresh.json") || true
     trigger=$code
     case $trigger in
@@ -610,6 +623,16 @@ main() {
                 }
                 [[ $SCAN_DELEGATED == 1 ]] || {
                     echo "refusing to run $E2E_METHOD without --scan-delegated: the OPERATOR STEP it needs is a delegated library scan (the driver POSTs /Library/Refresh and awaits completion; needs an admin-capable token, else trigger the scan in the dashboard). Asserting post-scan cleanliness with no scan is the vacuity B6 forbids, so this leg is NOT RUN." >&2
+                    exit 2
+                }
+            fi
+            # Mirror guard for the cancel leg: --expects defaults to `delete` (see above), so
+            # `run e2e4_cancelNoop` with no flag would send P3 after a 404 on an item that a
+            # correct cancel leaves in place — a false red against a working product, paid for
+            # after the cycle has already performed a real delete.
+            if [[ $E2E_METHOD == e2e4* ]]; then
+                [[ $EXPECTS != delete ]] || {
+                    echo "refusing to run $E2E_METHOD with --expects delete: it is the non-destructive cancel leg, so P3 would assert a 404 on an item a correct cancel leaves in place. Pass --expects no-delete." >&2
                     exit 2
                 }
             fi

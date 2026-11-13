@@ -375,13 +375,23 @@ public class DeleteFromLibraryE2eTest {
      * delete, and every membership read must be HTTP 200. A green here therefore means the
      * id was present, a scan completed, and the id stopped resolving.
      *
-     * <p><b>Which half of the scan is proven where.</b> With {@code -e qa_scan delegated}
-     * the driver (tools/qa-delete-cycle.sh step p3b_scan) owns {@code POST
-     * /Library/Refresh} + poll + its own re-assertion; this method then proves the in-app
-     * half (dead id out of the queue / off the now-playing surface) and re-reads the
-     * membership until it is clean, failing if the effect never shows. Without that arg
-     * this method triggers the scan itself over HTTP, and a non-2xx response is a fail()
-     * naming the operator step — never a silently skipped scan.
+     * <p><b>Which half of the scan is proven where.</b> The two halves are split by who can
+     * honestly observe them, and the split is a consequence of ordering, not of convenience:
+     * the driver runs this method through a <em>blocking</em> {@code am instrument -w}, and
+     * only calls its scan step ({@code tools/qa-delete-cycle.sh} p3b_scan) after that call
+     * returns. So with {@code -e qa_scan delegated} there is no scan in flight while this
+     * method runs — polling here would wait 180 s for an effect that cannot arrive until this
+     * method is over, i.e. a guaranteed red against a working product, paid for with a real
+     * destructive delete. In delegated mode this method therefore proves only what it can
+     * see: positive-first holder enumeration, the delete, the 404, and the in-app half (dead
+     * id out of the queue / off the now-playing surface); it then prints
+     * {@code PARTIAL (post-scan cleanliness delegated to driver p3b_scan)} and returns.
+     * p3b_scan — POST + poll-to-completion + a fresh per-holder re-assertion — runs after
+     * this method returns and owns the post-scan half; the run is green only if p3b_scan
+     * passes, so the declaration is not a skip and never satisfies R-EV on its own.
+     * Without that arg this method triggers the scan itself over HTTP (causality is then
+     * in-test) and polls the membership to cleanliness exactly as before; a non-2xx refresh
+     * response is a fail() naming the operator step — never a silently skipped scan.
      *
      * <p>Destructive exactly as E2E-1 is: driver P0→P8 cycle only, never standalone.
      * R-EV: no assumeTrue; every absent precondition is a fail() naming it.
@@ -451,47 +461,79 @@ public class DeleteFromLibraryE2eTest {
                     fail("E2E-2 needs a library scan and could not trigger one: POST "
                             + "/Library/Refresh returned HTTP " + refresh.status + ". Grant the "
                             + "QA token that privilege, or run inside the driver with -e "
-                            + "qa_scan delegated (step p3b_scan owns POST + poll). A green here "
+                            + "qa_scan delegated (step p3b_scan owns POST + poll, after this "
+                            + "run returns). A green here "
                             + "with no scan is the false green L4 warns about.");
                 }
             }
 
-            // ---- re-read: the dead id must stop resolving from the playlist ------------
-            long deadline = System.currentTimeMillis() + 180_000;
-            String lastBody = "";
-            while (true) {
-                boolean clean = true;
-                for (String playlistId : holders) {
-                    // cacheBuster defeats any intermediary/HTTP cache: this must be a fresh
-                    // read of the .m3u8-backed listing, not a remembered one (L4).
-                    lastBody = playlistMembership(server, token, user, playlistId,
-                            Long.toString(System.nanoTime()));
-                    if (lastBody.contains(itemId)) {
-                        clean = false;
-                    }
-                }
-                if (clean) {
-                    break;
-                }
-                if (System.currentTimeMillis() > deadline) {
-                    fail("R4/L4: " + ("delegated".equalsIgnoreCase(scanMode)
-                            ? "after 180 s of polling (the driver's p3b_scan owns the POST)"
-                            : "a scan was POSTed here but after 180 s of polling")
-                            + " the playlist(s) " + holders + " still list the deleted id "
-                            + itemId + ". Either the library scan never completed or the "
-                            + "playlist purge did not run — the stale listing is exactly what "
-                            + "this case exists to catch.");
-                }
-                Thread.sleep(5_000);
+            // ---- post-scan cleanliness: polled here, or declared driver-owned ----------
+            // In delegated mode the scan does not exist yet — the driver's p3b_scan issues
+            // it AFTER this method returns, because run_instrument blocks on `am instrument
+            // -w` — so polling here can only ever time out. The post-scan assertion lives
+            // where the scan lives (p3b_scan: POST + poll to completion + fresh per-holder
+            // re-assertion), and the operator only sees a green cycle if that step passes.
+            // This branch is NOT a skip: no assumeTrue, nothing is marked skipped, and the
+            // declaration below does not satisfy R-EV by itself.
+            if ("delegated".equalsIgnoreCase(scanMode)) {
+                Log.i("DeleteFromLibraryE2e", "PARTIAL (post-scan cleanliness delegated to "
+                        + "driver p3b_scan): proved in-test that the id was listed pre-delete "
+                        + "in " + holders + ", that the delete returned 404, and that the queue "
+                        + "and now-playing surface dropped it; the driver POSTs "
+                        + "/Library/Refresh and re-asserts these holders clean AFTER this "
+                        + "method returns, and its verdict is required for the run to be green.");
+            } else {
+                // Non-delegated: this method POSTed the scan itself, so causality is in-test
+                // and polling is the right oracle. Unchanged from before.
+                awaitHoldersClean(server, token, user, holders, itemId);
             }
-            // Honest bound on this leg: it proves the dead id no longer resolves from a
-            // fresh membership read. It does not read the .m3u8 file on the server, and in
-            // the delegated mode it does not prove who ran the scan — the driver's p3b_scan
-            // assertion is what pins that half.
+            // Honest bound on this leg: in the mode that polls, it proves the dead id no
+            // longer resolves from a fresh membership read. It never reads the .m3u8 file on
+            // the server, and in delegated mode the post-scan half is not taken here at all
+            // — it is taken by the driver's p3b_scan step, after this method returns.
         } finally {
             MusicPlayerRemote.pauseSong();
             MusicPlayerRemote.unbindFromService(tokenRef.get());
             scenario.close();
+        }
+    }
+
+    /**
+     * E2E-2's post-delete re-read, for the mode in which the test itself triggered {@code
+     * POST /Library/Refresh}: re-read every holder with a cache-buster until the dead id
+     * stops resolving, and fail naming the stale listing if it never clears.
+     *
+     * <p>Only correct after an in-test scan. In delegated mode no scan has been issued at
+     * the point the caller reaches it (the driver issues it after {@code am instrument -w}
+     * returns), so calling it there could only ever time out — which is why the delegated
+     * branch prints its PARTIAL declaration instead of calling this.
+     */
+    private void awaitHoldersClean(String server, String token, String user,
+            List<String> holders, String itemId) throws Exception {
+        long deadline = System.currentTimeMillis() + 180_000;
+        String lastBody = "";
+        while (true) {
+            boolean clean = true;
+            for (String playlistId : holders) {
+                // cacheBuster defeats any intermediary/HTTP cache: this must be a fresh
+                // read of the .m3u8-backed listing, not a remembered one (L4).
+                lastBody = playlistMembership(server, token, user, playlistId,
+                        Long.toString(System.nanoTime()));
+                if (lastBody.contains(itemId)) {
+                    clean = false;
+                }
+            }
+            if (clean) {
+                break;
+            }
+            if (System.currentTimeMillis() > deadline) {
+                fail("R4/L4: a scan was POSTed here but after 180 s of polling the "
+                        + "playlist(s) " + holders + " still list the deleted id " + itemId
+                        + ". Either the library scan never completed or the playlist purge "
+                        + "did not run — the stale listing is exactly what this case exists "
+                        + "to catch.");
+            }
+            Thread.sleep(5_000);
         }
     }
 
