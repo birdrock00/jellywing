@@ -172,14 +172,14 @@ ticks any row here.
   P3's assert rule would "prove" cleanliness that never happened. Encode the correct endpoint in the
   driver and make the driver **fail loudly** if a holder-list query returns 404 or an empty item list,
   rather than treating it as "not in any playlist".
-- **B1.4** The driver takes the fixture by *name* ("Jai Hind" in playlist `aurral-udta-teer`) and
+- **B1.4** The driver takes the fixture by *name* ("<redacted fixture track>" in playlist `<redacted fixture playlist>`) and
   resolves the id at run time; it must refuse to act if the name resolves to zero or more than one
   Audio record. Never substitute another item.
 
 ### B2 — Pre-flight (already verified 2026-11-13; re-run the cheap parts, do not re-do the destructive parts)
 Verified today, and re-confirmed by me where I could do so harmlessly:
 - sacrificial item present, exactly one Audio record, downloadable (ranged GET → 206, m4a bytes);
-- **H = exactly one playlist** (`aurral-udta-teer`) holding it, **4 entries**, matching the host backup
+- **H = exactly one playlist** (`<redacted fixture playlist>`) holding it, **4 entries**, matching the host backup
   snapshot; backup file present with **sha256 recorded and OK**;
 - emulator online (I re-checked `adb devices`: exactly one emulator device, no physical serial recorded);
 - server reachable.

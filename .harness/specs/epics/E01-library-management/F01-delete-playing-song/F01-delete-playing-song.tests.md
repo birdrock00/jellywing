@@ -262,7 +262,7 @@ repository; no hostname, user id, token, NAS path or device identifier is ever w
 committed file or a driver log that lands in the repo.
 
 Sacrificial fixture (operator-nominated, expendable, testing only): the track
-**"Jai Hind"** in the playlist **aurral-udta-teer**. Verified present 2026-11-12 (probe output
+**"<redacted fixture track>"** in the playlist **<redacted fixture playlist>**. Verified present 2026-11-12 (probe output
 in `.plan.md`: 1 Audio record; playlist exists, DB-backed, 4 entries including the track).
 Never delete any other item; never touch items that are operator favorites.
 

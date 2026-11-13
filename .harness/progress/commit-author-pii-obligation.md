@@ -5,17 +5,22 @@ Raised 2026-11-13 by the Orchestrator during round 4 of `E01-F01`, while screeni
 
 ## What was found
 
-This repository's local git identity is set to the operator's **personal email**
-(`brucey@…`, i.e. the same address that is the Jellyfin account name), while the published identity used
-by upstream contributors is `birdrock00 <…@users.noreply.github.com>`.
+This repository's local git identity was set to the operator's **personal email**. Its local part is
+deliberately not reproduced in this file: the domain is recoverable from the app's own package
+namespace, so writing the local part here would republish the address this note exists to remove.
+The published identity used by upstream contributors is `birdrock00 <…@users.noreply.github.com>`.
 
 Consequences, separated by what is still fixable:
 
 | State | Count | Fixable? |
 |---|---|---|
-| Unpushed commits carrying the personal author email | **30** | Yes — rewrite before pushing, no force-push needed |
+| Unpushed commits carrying the personal author email | ~~30~~ **0** | **DONE 2026-11-13** — rewritten by `filter-branch` to the noreply identity over `origin/master..HEAD`; tree content byte-identical; old→new SHAs in [pii-rewrite-sha-map.md](pii-rewrite-sha-map.md); recoverable from `refs/heads/backup/pre-rewrite-20261113-1333` |
 | Pushed commits carrying it, from the 2026-11-12 push of `63af1091..51c060e5` | **12** | Only by rewriting published history |
 | Pushed commits carrying it that **predate this session** (earliest 2026-10-14) | **8** | Only by rewriting published history |
+
+Remaining exposure: the 20 commits already in `origin/master` still carry it. Only a rewrite of
+published history (force-push, breaking for anyone who cloned) would remove that, which is why it is
+left as an explicit operator decision rather than done unilaterally.
 
 So the address is **already public** in this repository's history through commits made before this
 session began. That does not make the 30 unpushed ones acceptable, and it does not erase that the

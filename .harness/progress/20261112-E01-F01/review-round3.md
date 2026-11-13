@@ -377,7 +377,7 @@ Conditions, both cheap and neither destructive:
 **The only remaining gate is C-B** — the destructive P0→P8 delete-and-restore cycle with per-test device
 evidence, because R3/R4/R9/R10 still have no executed behavioral proof anywhere and R11's file removals
 still have no gate coverage. **C-B as written is executable**: the sacrificial item is nominated by name
-("Jai Hind" in playlist `aurral-udta-teer`, probed present 2026-11-12), the abort rules are stated (abort
+("<redacted fixture track>" in playlist `<redacted fixture playlist>`, probed present 2026-11-12), the abort rules are stated (abort
 if the item is missing or held by no playlist; never substitute another item), the backup/restore
 mechanism and the expected-as-fact items (new id, favorites and play history do not survive) are all
 specified, and B2's per-test-evidence rule matches exactly how I ran the non-destructive legs today.

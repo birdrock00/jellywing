@@ -22,7 +22,8 @@
 #   tools/qa-delete-cycle.sh run <e2eMethodName> [--expects delete|no-delete] [--scan-delegated] [--leg VALUE]
 #   tools/qa-delete-cycle.sh restore            # resume/re-run P5->P8 after an abort
 # Options:
-#   --fixture NAME    fixture track name (default: Jai Hind)
+#   --fixture NAME    fixture track name. NO default: supply it here or via QA_FIXTURE_NAME.
+#                     The real value is operator data and is deliberately not stored in the repo.
 #   --expects MODE    what the server must show after the act: 'delete' asserts P3's
 #                     GET /Items/{id} == 404 (default when the flag is ABSENT); 'no-delete'
 #                     asserts P3n's cancel guarantee (item still 200, holders unchanged) for
@@ -35,15 +36,19 @@
 #                     which runs AFTER the blocking instrumented run returns; e2e2 then proves
 #                     only its in-test half and prints a PARTIAL declaration instead of polling
 #                     for a scan that cannot have started yet.
-#   --playlist NAME   fixture playlist name (default: aurral-udta-teer)
+#   --playlist NAME   fixture playlist name. NO default: supply it here or via QA_PLAYLIST_NAME.
 #   --log-dir DIR     log/backup target; MUST be outside the repo (default: mktemp -d)
 #   --device SERIAL   adb target; must be an emulator (default: the sole emulator)
 #   --method-class N  instrumented class (default: club.thatpetbff.gramophone.ui.DeleteFromLibraryE2eTest)
 # Exit: 0 only if every executed phase PASSed (allowed SKIPPEDs noted); non-zero on FAIL.
 set -u -o pipefail
 
-FIXTURE_NAME="Jai Hind"
-FIXTURE_PLAYLIST="aurral-udta-teer"
+# Deliberately empty. These name real objects in the operator's library, so they are supplied at
+# run time (--fixture/--playlist, or QA_FIXTURE_NAME/QA_PLAYLIST_NAME) and are never committed.
+# require_fixture() below turns a missing value into a named stop rather than an empty-string probe
+# that would "succeed" against the wrong item.
+FIXTURE_NAME="${QA_FIXTURE_NAME:-}"
+FIXTURE_PLAYLIST="${QA_PLAYLIST_NAME:-}"
 LOG_DIR="${TMPDIR:-/tmp}/qa-delete-cycle-$(date +%Y%m%d-%H%M%S)"
 DEVICE=""
 METHOD_CLASS="club.thatpetbff.gramophone.ui.DeleteFromLibraryE2eTest"
@@ -248,6 +253,11 @@ PY
 }
 
 playlist_ids_from() { python3 -c 'import json,sys;[print(i["Id"]) for i in json.load(open(sys.argv[1])).get("Items",[])]' "$1"; }
+
+require_fixture() {
+    [[ -n "$FIXTURE_NAME" ]]    || die P0 "no fixture track name: pass --fixture NAME or set QA_FIXTURE_NAME (the repo holds no default by design)"
+    [[ -n "$FIXTURE_PLAYLIST" ]] || die P0 "no fixture playlist name: pass --playlist NAME or set QA_PLAYLIST_NAME (the repo holds no default by design)"
+}
 
 p0_probe() {
     mkdir -p "$STATE_DIR"

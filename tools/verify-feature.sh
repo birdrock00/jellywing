@@ -108,8 +108,10 @@ hits=$(git grep -nIE '(api[_-]?key|passwd|password|secret|token)[[:space:]]*[:=]
       | grep -viE 'bindToService|serviceToken|getToken|setToken|tokenRef|QA_TOKEN|X-Emby|MediaBrowser|Authorization' || true)
 if [[ -n $hits ]]; then printf '%s\n' "$hits" | sed -E 's/[A-Za-z0-9+\/_-]{20,}/<REDACTED>/g'; fail "possible secret in tracked content"; fi
 
-# The gate contains this path string in its own pattern, so it must not flag itself.
-hits=$(git grep -ln '/home/ec2-user' -- ':!*.md' ':!*verify-feature.sh' 2>/dev/null || true)
+# Pattern is a CLASS, not a literal path: hardcoding one machine's username would itself be the
+# leak this check exists to catch, and would have needed a self-exclusion to keep the gate from
+# flagging its own source. "[" after /home/ matches no username, so this line cannot match itself.
+hits=$(git grep -lnE '/home/[A-Za-z0-9_.-]+' -- ':!*.md' 2>/dev/null || true)
 if [[ -n $hits ]]; then printf '%s\n' "$hits"; fail "local filesystem path in tracked non-doc content"; fi
 
 # --- 6. commit-author identity ---------------------------------------------------------------
