@@ -59,6 +59,16 @@ android {
         targetCompatibility JavaVersion.VERSION_17
     }
 
+    // NOTE: Gradle Managed Devices was attempted here on 2026-11-13 and REJECTED by this AGP:
+    //   Could not find method managedDevices() ... on AgpDecorated (AGP 9.3.0-alpha10)
+    // so the documented `android { managedDevices { localDevices { … } } }` DSL is not available
+    // on this toolchain. Left as a comment so the next reader does not re-add it from the AGP 8.x
+    // docs without re-checking. Hermetic instrumented runs therefore go through the scripted-AVD
+    // path (boot AVD, `adb install -r -d`, `am instrument -w`), which is also what
+    // .harness/progress/qa-emulator.md already prescribes. That path does NOT unblock E01-F01
+    // condition C-B either: those legs need a real signed-in session, operator credentials and a
+    // manual restore.
+
 }
 
 dependencies {
