@@ -19,6 +19,7 @@ import static org.junit.Assume.assumeTrue;
 
 import android.Manifest;
 import android.content.ComponentName;
+import android.content.Context;
 import android.content.ServiceConnection;
 import android.os.IBinder;
 import android.view.WindowManager;
@@ -48,8 +49,11 @@ import org.junit.Rule;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 
+import java.io.BufferedReader;
 import java.io.File;
 import java.io.InputStream;
+import java.io.InputStreamReader;
+import java.nio.charset.StandardCharsets;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.util.ArrayList;
@@ -59,6 +63,8 @@ import java.util.List;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /**
  * The six E2E cases of .tests.md, run inside the P0→P8 backup/restore protocol by the
@@ -350,6 +356,246 @@ public class DeleteFromLibraryE2eTest {
             MusicPlayerRemote.unbindFromService(tokenRef.get());
             scenario.close();
         }
+    }
+
+    /**
+     * E2E-2 (R4, R9, L4): after a successful delete the dead id must be gone from the
+     * server-side playlist that held it, and gone from a *re-read* of that playlist —
+     * Jellyfin playlists are backed by an .m3u8 file, so a stale listing is the failure
+     * mode (limitation L4), not the happy path.
+     *
+     * <p><b>B6 — the vacuity rule this method exists to enforce.</b> "The playlist no
+     * longer lists the dead id" is trivially true when the id was never in the listing, or
+     * when the listing endpoint was wrong, or when no scan ever ran. So the POSITIVE half
+     * runs first and is a hard fail: some server playlist must list the id BEFORE the
+     * delete, and every membership read must be HTTP 200. A green here therefore means the
+     * id was present, a scan completed, and the id stopped resolving.
+     *
+     * <p><b>Which half of the scan is proven where.</b> With {@code -e qa_scan delegated}
+     * the driver (tools/qa-delete-cycle.sh step p3b_scan) owns {@code POST
+     * /Library/Refresh} + poll + its own re-assertion; this method then proves the in-app
+     * half (dead id out of the queue / off the now-playing surface) and re-reads the
+     * membership until it is clean, failing if the effect never shows. Without that arg
+     * this method triggers the scan itself over HTTP, and a non-2xx response is a fail()
+     * naming the operator step — never a silently skipped scan.
+     *
+     * <p>Destructive exactly as E2E-1 is: driver P0→P8 cycle only, never standalone.
+     * R-EV: no assumeTrue; every absent precondition is a fail() naming it.
+     */
+    @Test
+    public void e2e2_playlistCleanAfterScan() throws Exception {
+        String server = requireArg("qa_server");
+        String token = requireArg("qa_token");
+        String user = requireArg("qa_user");
+        String itemId = requireArg("qa_item");
+        String scanMode = arg("qa_scan");
+
+        assertEquals("E2E-2 precondition: the sacrificial item must exist on the server (P0)",
+                200, serverItemStatus(server, token, user, itemId));
+        Song sacrificial = findSong(itemId);
+        assertNotNull("E2E-2 needs the sacrificial item synced in the app library", sacrificial);
+        Song nextTrack = findOtherSong(itemId);
+        assertNotNull("E2E-2 needs a second local track so the queue can advance off the dead "
+                + "item (R4)", nextTrack);
+
+        // ---- positive half of B6: the id IS listed somewhere, before anything happens --
+        List<String> holders = new ArrayList<>();
+        for (String playlistId : serverPlaylistIds(server, token, user)) {
+            if (playlistMembership(server, token, user, playlistId, null).contains(itemId)) {
+                holders.add(playlistId);
+            }
+        }
+        if (holders.isEmpty()) {
+            fail("E2E-2 precondition: no server playlist lists the sacrificial id " + itemId
+                    + ", so asserting afterwards that 'the playlist no longer lists it' would "
+                    + "pass whether or not the purge and the scan work. Nominate a track that "
+                    + "lives in a QA playlist.");
+        }
+
+        PreferenceUtil.getInstance(App.getInstance()).setNowPlayingScreen(NowPlayingScreen.CARD);
+        ActivityScenario<MainActivity> scenario = ActivityScenario.launch(MainActivity.class);
+        AtomicReference<MusicPlayerRemote.ServiceToken> tokenRef = new AtomicReference<>();
+        try {
+            MusicPlayerRemote.ServiceToken bound = bind(scenario);
+            tokenRef.set(bound);
+            scenario.onActivity(MainActivity::onServiceConnected);
+            dismissBatteryDialogIfPresent();
+
+            List<Song> queue = Arrays.asList(sacrificial, nextTrack);
+            scenario.onActivity(activity -> {
+                MusicPlayerRemote.openQueue(queue, 0, false);
+                activity.onQueueChanged();
+                activity.onPlayMetadataChanged();
+            });
+            Thread.sleep(1_500);
+            tapDeleteOnCurrentTrack(scenario);
+            assertToastShownEventually(R.string.delete_from_library_success, 15_000);
+
+            // in-app half (R4): the dead id is out of the queue and off every surface.
+            assertFalse("R4: the deleted track must leave the queue",
+                    queueIds().contains(itemId));
+            Song current = MusicPlayerRemote.getCurrentSong();
+            assertTrue("R4: no surface may present the dead item", current == null
+                    || !itemId.equals(current.id));
+            assertEquals("server oracle: the delete reached the server", 404,
+                    serverItemStatus(server, token, user, itemId));
+
+            // ---- the scan itself: triggered here, or delegated to the driver ----------
+            if (!"delegated".equalsIgnoreCase(scanMode)) {
+                HttpResp refresh = authorized(server, "POST", "/Library/Refresh", token, null);
+                if (refresh.status < 200 || refresh.status >= 300) {
+                    fail("E2E-2 needs a library scan and could not trigger one: POST "
+                            + "/Library/Refresh returned HTTP " + refresh.status + ". Grant the "
+                            + "QA token that privilege, or run inside the driver with -e "
+                            + "qa_scan delegated (step p3b_scan owns POST + poll). A green here "
+                            + "with no scan is the false green L4 warns about.");
+                }
+            }
+
+            // ---- re-read: the dead id must stop resolving from the playlist ------------
+            long deadline = System.currentTimeMillis() + 180_000;
+            String lastBody = "";
+            while (true) {
+                boolean clean = true;
+                for (String playlistId : holders) {
+                    // cacheBuster defeats any intermediary/HTTP cache: this must be a fresh
+                    // read of the .m3u8-backed listing, not a remembered one (L4).
+                    lastBody = playlistMembership(server, token, user, playlistId,
+                            Long.toString(System.nanoTime()));
+                    if (lastBody.contains(itemId)) {
+                        clean = false;
+                    }
+                }
+                if (clean) {
+                    break;
+                }
+                if (System.currentTimeMillis() > deadline) {
+                    fail("R4/L4: " + ("delegated".equalsIgnoreCase(scanMode)
+                            ? "after 180 s of polling (the driver's p3b_scan owns the POST)"
+                            : "a scan was POSTed here but after 180 s of polling")
+                            + " the playlist(s) " + holders + " still list the deleted id "
+                            + itemId + ". Either the library scan never completed or the "
+                            + "playlist purge did not run — the stale listing is exactly what "
+                            + "this case exists to catch.");
+                }
+                Thread.sleep(5_000);
+            }
+            // Honest bound on this leg: it proves the dead id no longer resolves from a
+            // fresh membership read. It does not read the .m3u8 file on the server, and in
+            // the delegated mode it does not prove who ran the scan — the driver's p3b_scan
+            // assertion is what pins that half.
+        } finally {
+            MusicPlayerRemote.pauseSong();
+            MusicPlayerRemote.unbindFromService(tokenRef.get());
+            scenario.close();
+        }
+    }
+
+    /**
+     * Expand the now-playing panel, open the player overflow and confirm the delete.
+     * Shared by the methods added in part 2; part 1's methods keep their own inline idiom.
+     */
+    private static void tapDeleteOnCurrentTrack(ActivityScenario<MainActivity> scenario)
+            throws Exception {
+        scenario.onActivity(activity -> ((AbsMusicPanelActivity) activity).expandPanel());
+        Thread.sleep(1_000);
+        openPlayerOverflowAndTapDelete();
+        onView(withText(R.string.delete_from_library_confirm)).inRoot(isDialog())
+                .perform(click());
+    }
+
+    /** An authorized call against the QA server; body is the full response text. */
+    private static final class HttpResp {
+        final int status;
+        final String body;
+
+        HttpResp(int status, String body) {
+            this.status = status;
+            this.body = body;
+        }
+    }
+
+    private static HttpResp authorized(String server, String method, String path, String token,
+            String cacheBuster) throws Exception {
+        HttpURLConnection connection = (HttpURLConnection)
+                new URL(server + path).openConnection();
+        connection.setRequestMethod(method);
+        connection.setRequestProperty("Authorization",
+                "MediaBrowser Client=\"jellywing-qa\", Device=\"qa\", DeviceId=\"qa\", Token=\""
+                        + token + "\"");
+        if (cacheBuster != null) {
+            connection.setRequestProperty("Cache-Control", "no-cache");
+        }
+        connection.setConnectTimeout(15_000);
+        connection.setReadTimeout(30_000);
+        if ("POST".equals(method)) {
+            connection.setDoOutput(true);
+            connection.getOutputStream().close();
+        }
+        int status = connection.getResponseCode();
+        StringBuilder body = new StringBuilder();
+        InputStream stream = status >= 400 ? connection.getErrorStream()
+                : connection.getInputStream();
+        if (stream != null) {
+            try (BufferedReader reader = new BufferedReader(
+                    new InputStreamReader(stream, StandardCharsets.UTF_8))) {
+                String line;
+                while ((line = reader.readLine()) != null) {
+                    body.append(line);
+                }
+            } catch (Exception ignored) {
+            }
+        }
+        connection.disconnect();
+        return new HttpResp(status, body.toString());
+    }
+
+    /**
+     * Ids of every playlist this user owns. A non-200 is a fail(), not an empty list: an
+     * empty list here would make every later "the dead id is not listed" assertion pass.
+     */
+    private static List<String> serverPlaylistIds(String server, String token, String user)
+            throws Exception {
+        HttpResp resp = authorized(server, "GET", "/Users/" + user
+                + "/Playlists?PageSize=100", token, null);
+        if (resp.status != 200) {
+            fail("E2E-2 could not enumerate the user's playlists: GET /Users/" + user
+                    + "/Playlists returned HTTP " + resp.status + ". Without a listing there is "
+                    + "no oracle for playlist cleanliness, so nothing here can be reported as "
+                    + "passing.");
+        }
+        List<String> ids = new ArrayList<>();
+        Matcher matcher = Pattern.compile("\"Id\"\\s*:\\s*\"([^\"]+)\"").matcher(resp.body);
+        while (matcher.find()) {
+            ids.add(matcher.group(1));
+        }
+        if (ids.isEmpty()) {
+            fail("E2E-2 found no playlists for user " + user + " (HTTP 200, empty collection). "
+                    + "The sacrificial item must live in a QA playlist for this case to have "
+                    + "any oracle at all.");
+        }
+        return ids;
+    }
+
+    /**
+     * Raw membership JSON for one playlist.
+     *
+     * <p>Endpoint is {@code GET /Playlists/{playlistId}/Items?UserId={user}} — NOT
+     * {@code /Items/{playlistId}/Items}, which returns 404 for a playlist id and would make
+     * "the id is not in the listing" true for every id, dead or alive. Any non-200 fails
+     * for that reason.
+     */
+    private static String playlistMembership(String server, String token, String user,
+            String playlistId, String cacheBuster) throws Exception {
+        String path = "/Playlists/" + playlistId + "/Items?UserId=" + user + "&Limit=1000"
+                + (cacheBuster == null ? "" : "&X-QA-Read=" + cacheBuster);
+        HttpResp resp = authorized(server, "GET", path, token, cacheBuster);
+        if (resp.status != 200) {
+            fail("E2E-2 membership read of playlist " + playlistId + " via GET " + path
+                    + " returned HTTP " + resp.status + ". A failed listing is NOT evidence of "
+                    + "cleanliness (that is why /Items/{playlistId}/Items is never used here).");
+        }
+        return resp.body;
     }
 
     /**
