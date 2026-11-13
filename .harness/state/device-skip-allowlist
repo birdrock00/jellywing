@@ -1,0 +1,12 @@
+# Instrumented classes excluded from the default device tier, each with a named reason.
+# A skipped class is reported SKIPPED on every run; it is never counted as executed.
+# Format: <fully.qualified.Class>   # reason
+#
+# Only ONE class belongs here. JellyfinPlaybackSmokeTest and JellyfinLanguageFeatureLiveTest were
+# listed briefly on the assumption that they need -e jellyfinServer/-e jellyfinUsername/-e
+# jellyfinPassword; that was wrong, measured 2026-11-13: run per method they returned
+# "OK (1 test)", i.e. they executed for real against the live server using the session already
+# stored in the app. Listing them would have hidden four passing tests behind a "needs credentials"
+# label. If the app is ever signed out on the QA AVD those two will report NOT RUN (assumption
+# failed), which this script treats as a failure rather than a pass.
+club.thatpetbff.gramophone.ui.DeleteFromLibraryE2eTest   # needs -e qa_server/qa_token/qa_user and is DESTRUCTIVE (deletes from the server, needs operator restore); run via tools/qa-delete-cycle.sh
