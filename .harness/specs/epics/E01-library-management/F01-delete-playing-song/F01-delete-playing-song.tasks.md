@@ -17,6 +17,33 @@
 > T6a/T10a are ticked for their unit/instrumented legs only. See the *What actually executes*
 > section of `.tests.md`.
 >
+> **Round 3 ruled (2026-11-12, review-round3 §2/§6) — read the C-A status here, not in the older
+> paragraph below.** Builder conditions **C-A.1, C-A.2, C-A.3, C-A.4 and C-A.5's R2-B1 half are
+> CLEARED** with the named mutant shown RED by the Reviewer (C-A.1: inline ascending removal loop RED at
+> `DeleteFromLibraryWiringSourceTest:291` and ascending `removalOrder` RED at
+> `LibraryDeleteDuplicateQueueTest::testRemovalOrderIsHighestIndexFirst:56`; C-A.2: all five
+> success-side effects inserted before `DeleteItem(` RED at `:382`; C-A.3: `if (song == null) return;`
+> before `deleteFromCache(itemId)` RED **on device** at `CachePurgeOnDeleteInstrumentedTest.java:109`;
+> C-A.4: broken purge fails the same R11 assertion on run 1 **and** run 2; R2-B1:
+> `setVisible(serverBacked || true)` RED at `:166`). C-A.3 and C-A.4 were **executed on the emulator**
+> with per-test `started:`/`finished:` lines and no `assumption failed` line, so the "no Reviewer has run
+> it" objection no longer applies to them. **One condition remains open: C-C1** (the F5 locale-scan
+> vacuity), **IN PROGRESS with a Builder and NOT done** — its acceptance is that
+> `KEY_FRAGMENT + "_ZZZ"` and the re-spelled-literal / re-wrapped variants go RED, which nobody has
+> shown yet, and it must not be implemented as a self-satisfying `source.contains(...)` pin. No task
+> below is ticked for any of this; the only remaining shipping gate is **C-B** (QA, destructive
+> P0→P8). Bounds the cleared items do **not** buy: **R3-B1** (the call site's consumption of
+> `removalOrder()` is textual-pinned only), the narrower **R2-B1 survivor**
+> (`serverBacked = song != null || (…)`), the **lexical** extent of C-A.2's pre-request region, and
+> **R11's file removals**, which still contribute nothing to the JVM gate (G5).
+>
+> **Mapping correction (review-round3 §3 row 11).**
+> `app/src/test/java/club/thatpetbff/gramophone/util/DeleteFromLibraryWiringSourceTest.java::testBothStringKeyCallSitesShareTheOneFragment`
+> is an executed R12 source contract (it landed at `10e1e297` in the C-A.5 lane) that had **no row in
+> either `.tests.md` or `.tasks.md`** — the same failure shape round 2 filed as F8, recurring one round
+> later. It is now carried as a matrix row under R12, and belongs to the T2a/T2b pair for ownership
+> purposes even though it was authored outside that pair.
+>
 > **Round 2 closed, and round 3 is open (so ticks are read correctly).** The round-2 pairs landed
 > the tests the Reviewer demanded — `DeleteFromLibraryDialogSourceTest` (R2/R3 request-before-confirm
 > + destructive-copy content), the SUCCESS-block scoping of
@@ -34,7 +61,9 @@
 > mutation evidence** and (for C-A.3/C-A.4) no device run, while C-A.5 was still uncommitted. No task
 > below is ticked, or may be ticked, for a C-A item on the strength of a green gate — the acceptance
 > for each is its named mutant going RED (review-round2 §7 C-A); C-A.3 and C-A.4 additionally need a
-> real device run with per-test `started:`/`finished:` evidence before they mean anything.
+> real device run with per-test `started:`/`finished:` evidence before they mean anything. **That
+paragraph is the round-2 state of play and is superseded by the round-3 ruling immediately above: the
+mutants were run, four-and-a-half of the five C-A items are CLEARED, and only C-C1 remains open.**
 
 **Test-drift waivers for the round-2 pair commits (Reviewer C-A.6).** `test-drift-check.sh` reports
 the round-2 replacements of the round-1 whole-file assertions as drift; the Reviewer ran them at each
@@ -50,7 +79,22 @@ not be added to localized values-*") by the pattern-derived versions in `testNew
 `testDeleteStringKeyListIsDerivedNotEmpty`. Both were confirmed RED against their mutants
 (review-round2 §1), so this is tightening, not loss of coverage.
 
+**Round-3 pair commits add one more waived file.** Run at the C-A.3/C-A.4 pair baselines
+(`e88b33fa`, `17d91a00`, `7a3743c8`) the tool reported **8 findings, 0 waived**, all in
+`app/src/androidTest/java/club/thatpetbff/gramophone/database/CachePurgeOnDeleteInstrumentedTest.java`
+(`assert-removed` on the two fixture-creation assertions, `assert-modified` on the four R11 assertions
+and the two no-op assertions); at `8e1ff1ee`, `10e1e297` and `HEAD` it exited 0, and the whole-feature
+run against `origin/master` is 0. Disposition, evidenced in review-round3 §3 rather than asserted: these
+are **line-move artifacts of the `try`/`finally` self-restoring-fixture restructuring, not weakened
+coverage** — every named assertion still exists verbatim at HEAD, the file carries 15 `assert*` call
+sites against 10 at `4b9498d6`, two of the eight findings pair a real assertion with a javadoc line (the
+tool's line-matcher sliding into a comment), and the moved assertions still fire on device (the
+broken-purge run failed on `downloaded audio file must be gone (R11)`, one of the lines reported
+"removed"). Hence the single `CachePurgeOnDeleteInstrumentedTest.java` waiver above. This is the tool
+behaving as designed on a moved line, not a tool defect.
+
 - waive-test-drift: app/src/test/java/club/thatpetbff/gramophone/util/DeleteFromLibraryWiringSourceTest.java — round-2 SUCCESS-block tightening demanded by Reviewer B4/M-4: the whole-file R4/R9 assertions in testSuccessOutcomeRunsQueueDropAndFavoritesRefresh were replaced by case-SUCCESS-scoped ones (RED for the SUCCESS-only mutant, independently of the ALREADY_GONE test); replacing a whole-file assertion is not loss of coverage
+- waive-test-drift: app/src/androidTest/java/club/thatpetbff/gramophone/database/CachePurgeOnDeleteInstrumentedTest.java — round-3 C-A.3/C-A.4 restructuring (review-round3 §3, pair-commit drift) moved these assertions into the `try`/`finally` self-restoring fixture wrapper; each named assertion still exists verbatim at HEAD (15 `assert*` call sites against 10 at `4b9498d6` — strictly more coverage, not less), two of the eight findings pair a real assertion with a javadoc line the tool's line-matcher slid into, and the moved assertions still fire: the broken-purge device run failed on "downloaded audio file must be gone (R11)", one of the lines reported "removed"
 - waive-test-drift: app/src/test/java/club/thatpetbff/gramophone/util/DeleteFromLibraryWiringSourceTest.java — round-2 derivation demanded by Reviewer M-4: testNewStringsLiveInDefaultEnglishOnly's hand-typed key list and its per-locale assertion were replaced by the pattern-derived list with a non-vacuity floor (RED for the untracked-values-de mutant); replacing a hand-typed assertion is not loss of coverage
 
 > Tool caveat, stated rather than hidden: for these Java findings the drift tool attributes the
@@ -58,7 +102,10 @@ not be added to localized values-*") by the pattern-derived versions in `testNew
 > the tool actually matches — and a waiver is file-scoped, which is broader than one test. Until
 > C-A.5's own edits land, any *new* drift inside that file will be waived by these lines: read the
 > finding text before accepting a waived run, and delete these waivers once the pair commits are
-> behind the default branch.
+> behind the default branch. The third waiver is scoped the same way — file-wide, over
+> `CachePurgeOnDeleteInstrumentedTest.java` — so it waives any *future* drift in that class too:
+> read the finding text before relying on it, and drop it once `7a3743c8`/`8e1ff1ee` are behind the
+> default branch.
 
 - [x] **T1a** (R1) — write failing `app/src/androidTest/java/club/thatpetbff/gramophone/ui/DeleteMenuItemVisibilityTest.java`: with a server-backed song current, the player overflow contains **Delete from library**; with an empty queue it does not. Run on the emulator; observe RED (menu id does not exist)
 - [x] **T1b** (R1) — minimal code: `action_delete_from_library` in `app/src/main/res/menu/menu_player.xml` (`showAsAction="never"`, English title), shared visibility helper in `app/src/main/java/club/thatpetbff/gramophone/fragments/player/AbsPlayerFragment.java` gating on the current song's server id, one call each in `app/src/main/java/club/thatpetbff/gramophone/fragments/player/card/CardPlayerFragment.java` and `app/src/main/java/club/thatpetbff/gramophone/fragments/player/flat/FlatPlayerFragment.java` after `inflateMenu`; observe GREEN; commit

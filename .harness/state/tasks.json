@@ -38,7 +38,8 @@
               "C-A",
               "C-B"
             ],
-            "round3": "conditions C-A implemented, awaiting verification"
+            "round3": "approve-with-conditions: C-C1 (test), C-C2 (doc); C-B stands as shipping gate",
+            "round4": "C-C1 cleared (Builder evidence); C-C2 applied; awaiting reviewer re-run; C-B stands"
           }
         }
       ]
