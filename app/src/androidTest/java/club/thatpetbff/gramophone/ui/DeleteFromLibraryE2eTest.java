@@ -43,6 +43,8 @@ import club.thatpetbff.gramophone.helper.MusicPlayerRemote;
 import club.thatpetbff.gramophone.service.MusicService;
 import club.thatpetbff.gramophone.model.Song;
 import club.thatpetbff.gramophone.util.FavoritesStore;
+import club.thatpetbff.gramophone.util.MusicUtil;
+import club.thatpetbff.gramophone.util.NavigationUtil;
 import club.thatpetbff.gramophone.util.PreferenceUtil;
 
 import org.hamcrest.Description;
@@ -638,6 +640,162 @@ public class DeleteFromLibraryE2eTest {
             MusicPlayerRemote.unbindFromService(tokenRef.get());
             scenario.close();
         }
+    }
+
+    /**
+     * E2E-6 (R11): the device-level half of the cache purge. The JVM/instrumented
+     * CachePurgeOnDeleteInstrumentedTest calls {@code purgeCacheEntry} directly; this case
+     * drives the whole path — the app's OWN download action caches the fixture, the player
+     * overflow deletes it from the library, and the row and the bytes must both disappear.
+     *
+     * <p>Non-vacuity, in order: the fixture is asserted NOT cached before the download, then
+     * cached (row AND at least one on-disk path) after it, so "cached state is gone" is a
+     * statement about a state that was really there. Stale fixture files are removed before
+     * anything is created — {@code MusicUtil.getFileUri(song)} is built from
+     * artist/album/track/title, not the run-unique id, so one leftover file from a previous
+     * run makes the final "file is gone" assertion pass on a broken purge (the poisoned
+     * fixture lesson).
+     *
+     * <p>If the app's own cache action cannot cache this item at run time the case FAILS
+     * naming that (R-EV: no skip). Destructive as E2E-1 — driver cycle only.
+     */
+    @Test
+    public void e2e6_cachedSongPurged() throws Exception {
+        String server = requireArg("qa_server");
+        String token = requireArg("qa_token");
+        String user = requireArg("qa_user");
+        String itemId = requireArg("qa_item");
+
+        assertEquals("E2E-6 precondition: the sacrificial item must exist on the server (P0)",
+                200, serverItemStatus(server, token, user, itemId));
+        Song sacrificial = findSong(itemId);
+        assertNotNull("E2E-6 needs the sacrificial item synced in the app library", sacrificial);
+        Song nextTrack = findOtherSong(itemId);
+        assertNotNull("E2E-6 needs a second local track so the queue can advance off the "
+                + "deleted item", nextTrack);
+
+        App app = App.getInstance();
+        String cacheRoot = PreferenceUtil.getInstance(app).getLocationCache();
+        File direct = new File(cacheRoot, itemId);
+        File download = new File(cacheRoot, "download/" + itemId);
+        File audio = new File(MusicUtil.getFileUri(sacrificial));
+        File[] paths = new File[]{direct, download, audio};
+
+        // Poisoned-fixture lesson: reclaim first, and prove the reclaim worked.
+        for (File file : paths) {
+            if (file.exists() && !file.delete()) {
+                fail("E2E-6 could not remove a stale fixture file before starting: " + file
+                        + ". A leftover cached file makes the final \"the purge removed the "
+                        + "bytes\" assertion pass without any purge having run.");
+            }
+        }
+        App.getDatabase().cacheDao().deleteFromCache(itemId);
+        assertFalse("E2E-6 precondition: the item must start UNcached, otherwise \"the delete "
+                + "purged the cache\" cannot be distinguished from \"it was never cached\"",
+                App.getDatabase().cacheDao().isCached(itemId));
+
+        PreferenceUtil.getInstance(app).setNowPlayingScreen(NowPlayingScreen.CARD);
+        ActivityScenario<MainActivity> scenario = ActivityScenario.launch(MainActivity.class);
+        AtomicReference<MusicPlayerRemote.ServiceToken> tokenRef = new AtomicReference<>();
+        try {
+            MusicPlayerRemote.ServiceToken bound = bind(scenario);
+            tokenRef.set(bound);
+            scenario.onActivity(MainActivity::onServiceConnected);
+            dismissBatteryDialogIfPresent();
+
+            // ---- cache it through the app's own entry point ---------------------------
+            scenario.onActivity(activity ->
+                    NavigationUtil.startDownload(activity, Collections.singletonList(sacrificial)));
+            long cacheDeadline = System.currentTimeMillis() + 60_000;
+            while (!App.getDatabase().cacheDao().isCached(itemId)) {
+                if (System.currentTimeMillis() > cacheDeadline) {
+                    fail("R11 setup: NavigationUtil.startDownload() never produced a cache row "
+                            + "for " + itemId + " within 60 s, so there is no cached state for "
+                            + "the delete to purge and R11 is untested. Check the device's "
+                            + "network path to " + server + " and the signed-in account.");
+                }
+                Thread.sleep(1_000);
+            }
+            // The row alone is not enough: with no bytes on disk the file-level purge
+            // assertions would pass vacuously.
+            long bytesDeadline = System.currentTimeMillis() + 180_000;
+            while (!anyExists(paths)) {
+                if (System.currentTimeMillis() > bytesDeadline) {
+                    fail("R11 setup: " + itemId + " is in the cache table but none of its cache "
+                            + "paths exist on disk (" + direct + ", " + download + ", " + audio
+                            + "), so \"the purge removed the cached files\" would prove nothing. "
+                            + "The download did not produce bytes on this device.");
+                }
+                Thread.sleep(2_000);
+            }
+
+            // ---- delete it through the UI --------------------------------------------
+            List<Song> queue = Arrays.asList(sacrificial, nextTrack);
+            scenario.onActivity(activity -> {
+                MusicPlayerRemote.openQueue(queue, 0, false);
+                activity.onQueueChanged();
+                activity.onPlayMetadataChanged();
+            });
+            Thread.sleep(1_500);
+            tapDeleteOnCurrentTrack(scenario);
+            assertToastShownEventually(R.string.delete_from_library_success, 15_000);
+            assertEquals("server oracle: the delete reached the server", 404,
+                    serverItemStatus(server, token, user, itemId));
+
+            // ---- the purge: row gone AND bytes gone ----------------------------------
+            long purgeDeadline = System.currentTimeMillis() + 20_000;
+            while (App.getDatabase().cacheDao().isCached(itemId) || anyExists(paths)) {
+                if (System.currentTimeMillis() > purgeDeadline) {
+                    fail("R11: after a successful library delete the cache row and the cached "
+                            + "bytes must both be gone. Still cached row: "
+                            + App.getDatabase().cacheDao().isCached(itemId) + "; still present: "
+                            + existingPaths(paths) + ". A cached copy of a file the server "
+                            + "deleted is exactly what R11 forbids.");
+                }
+                Thread.sleep(1_000);
+            }
+            assertFalse("R11: the cache row must be gone", 
+                    App.getDatabase().cacheDao().isCached(itemId));
+            for (File file : paths) {
+                assertFalse("R11: the cached file must be gone: " + file, file.exists());
+            }
+            assertFalse("R4: the deleted item must also be out of the queue",
+                    queueIds().contains(itemId));
+        } finally {
+            // Restores the state this method found (uncached, no fixture bytes) on the
+            // failure paths too. Only this item's cache row and files — never library rows.
+            try {
+                App.getDatabase().cacheDao().deleteFromCache(itemId);
+            } catch (Exception ignored) {
+            }
+            for (File file : paths) {
+                if (file.exists()) {
+                    file.delete();
+                }
+            }
+            MusicPlayerRemote.pauseSong();
+            MusicPlayerRemote.unbindFromService(tokenRef.get());
+            scenario.close();
+        }
+    }
+
+    private static boolean anyExists(File[] files) {
+        for (File file : files) {
+            if (file.exists()) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static List<String> existingPaths(File[] files) {
+        List<String> present = new ArrayList<>();
+        for (File file : files) {
+            if (file.exists()) {
+                present.add(file.getPath());
+            }
+        }
+        return present;
     }
 
     /** GET that preserves line breaks, for scanning a captured request log. */
