@@ -49,3 +49,38 @@ is very likely indexed already. My recommendation: **do not** force-push; fix th
 the identity correct going forward, and treat the published occurrences as a known, disclosed state.
 
 Independent of this, the two passwords leaked into chat earlier still need rotation.
+
+## Addendum — re-measured 2026-11-13 (round 5), and two corrections to this note
+
+Re-measured against `origin/master..HEAD` rather than trusting the table above.
+
+| Item | This note said | Measured now |
+|---|---|---|
+| Unpushed commits carrying the personal address | 30 | **30** (unchanged; range is now 41 commits) |
+| Pushed commits carrying it on `origin/master` | 20 | **20** (confirmed) |
+| Personal address anywhere in tracked **file contents** | — | **0 occurrences.** The exposure is git *metadata* only |
+
+**Correction 1 — "no new commit can repeat it" is not durable.** Plan step 1 asserts the repo-local
+identity is corrected, and no new commit has repeated the personal address. But sub-agents commit with
+their own identity: `56df4ff4` is authored `harness <harness@local>`. So the fix cannot be "set
+`git config` once" — the rewrite must **normalize every author/committer in the range that is not the
+published noreply identity**, not substitute one specific address for another. A rewrite scoped to the
+personal address alone would publish `harness@local` and leave a second broken identity behind.
+
+**Correction 2 — the address is reconstructable, so scrubbing this file is not a mitigation.** The
+domain is the app's own package namespace (`club.thatpetbff` appears in 219 tracked Java files) and the
+local part is written above. Concatenating them yields the address, and this file is tracked. Treat the
+published-address question as settled by the metadata, and decide separately how much of *this* document
+should ever be pushed — it also states that the address is the Jellyfin account name, which pairs an
+identifier with the server details documented elsewhere in this repo (fork version, auth configuration).
+
+**Newly noticed, separate from the above.** The QA fixture's real names — the track name and the real
+playlist name — are committed in 5 tracked files, including `tools/qa-delete-cycle.sh` and the feature's
+`.tests.md`. They are load-bearing for the fixture and for the driver defaults, so removing them is a
+spec change, not a scrub. Flagged for an explicit operator decision rather than fixed silently, because
+it is the operator's own library content being published against their name.
+
+Verified clean and unlikely: no IPs, device serials, Jellyfin item GUIDs, tokens or secrets in tracked
+content; `local.properties` is gitignored and holds only `sdk.dir`; no `/home/ec2-user` paths in tracked
+files. One secrets-shaped regex hit in `AbsMusicServiceActivity.java` is a false positive
+(`serviceToken = MusicPlayerRemote.bindToService`).
