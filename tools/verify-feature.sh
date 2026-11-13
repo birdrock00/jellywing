@@ -11,8 +11,10 @@
 # diagnostic is the point and truncating it to save tokens would be a false economy.
 #
 # Exit: 0 passed | 2 a check failed | 3 the gate itself could not run
-# Usage: sh tools/verify-feature.sh [--fast]      --fast skips the gradle tier (seconds)
-#        STRICT=1 sh tools/verify-feature.sh     also blocks on commit-author PII (use before push)
+# Usage: sh tools/verify-feature.sh [--fast]     --fast skips the gradle tier (seconds)
+#        STRICT=1 sh tools/verify-feature.sh     also block on commit-author PII (use before push)
+#        DEVICE_TIER=1 sh tools/verify-feature.sh  also run the instrumented device tier (~2.5 min,
+#                                                  boots the QA AVD; see tools/verify-instrumented.sh)
 
 set -uo pipefail
 cd "$(git rev-parse --show-toplevel 2>/dev/null || pwd)" || exit 3
@@ -180,6 +182,16 @@ PY
   if ! timeout 900 ./gradlew compileDebugAndroidTestSources >/tmp/vf-at.log 2>&1; then
     echo "--- gradle compileDebugAndroidTestSources (tail) ---"; tail -30 /tmp/vf-at.log
     fail "androidTest sources do not compile (full log: /tmp/vf-at.log)"
+  fi
+fi
+
+# --- optional device tier -------------------------------------------------------------------------
+# Off by default: it boots an emulator and takes ~2.5 min, and a gate that is slow gets skipped.
+# Ask for it with --device once the JVM tier is green.
+if [[ ${DEVICE_TIER:-0} == 1 ]]; then
+  if ! sh tools/verify-instrumented.sh > /tmp/vf-device.log 2>&1; then
+    echo "--- verify-instrumented (tail) ---"; tail -40 /tmp/vf-device.log
+    fail "instrumented device tier failed (full logs: /tmp/verify-instrumented/)"
   fi
 fi
 
