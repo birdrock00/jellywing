@@ -2,7 +2,7 @@
 id: E01-F01
 title: "Delete the playing song from the Jellyfin library (and every playlist holding it)"
 epic: E01-library-management
-status: in-review          # pending → spec-ready → in-progress → in-review → done
+status: in-progress        # pending → spec-ready → in-progress → in-review → done
 sdd: true
 autonomous: false        # workflow.require_spec_approval: true — the human gate applies
 complexity: complex      # basis stated in Context (E17-F03)
