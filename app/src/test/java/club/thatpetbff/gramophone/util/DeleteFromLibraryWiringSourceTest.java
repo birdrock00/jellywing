@@ -71,6 +71,17 @@ public class DeleteFromLibraryWiringSourceTest {
         assertFalse("the locale rule is vacuous if the " + KEY_FRAGMENT + " key list is empty",
                 deleteFromLibraryKeys().isEmpty());
 
+        // Positive control on the scan the loop below actually uses (R12/F5, review round 3 C-C1).
+        // "Zero matches in every locale" is satisfied for free by a scan that cannot match anything,
+        // so the rule is only meaningful if the same scan reports a key that IS present. Aimed at a
+        // fragment matching nothing, this fails expected:<1> but was:<0> instead of passing vacuously.
+        // Deliberately not a source.contains(...) pin: the assertion's own literal would satisfy it.
+        String plantedXml = "<resources><string name=\"" + deleteFromLibraryKeys().get(0)
+                + "\">x</string></resources>";
+        assertEquals("the locale scan must find a planted " + KEY_FRAGMENT + "* key, otherwise "
+                        + "\"no translations in any locale\" means nothing (R12/F5)",
+                1, translatedDeleteKeys(plantedXml).size());
+
         File valuesDir = new File("src/main/res");
         File[] localeDirs = valuesDir.listFiles(
                 file -> file.isDirectory() && file.getName().startsWith("values-"));
@@ -86,7 +97,7 @@ public class DeleteFromLibraryWiringSourceTest {
             localeFilesChecked++;
             String locale = new String(Files.readAllBytes(localeStrings.toPath()),
                     StandardCharsets.UTF_8);
-            List<String> translated = stringKeysMatching(locale, KEY_FRAGMENT);
+            List<String> translated = translatedDeleteKeys(locale);
             assertTrue("R12: " + localeDir.getName() + " must not translate any "
                             + "delete_from_library* string (English-only by design); found "
                             + translated.size() + ": " + translated,
@@ -494,6 +505,16 @@ public class DeleteFromLibraryWiringSourceTest {
             kept.append(line).append('\n');
         }
         return kept.toString();
+    }
+
+    /**
+     * The locale side of the R12 rule, as one named scan (review round 3 C-C1). It takes no fragment
+     * parameter — the fragment comes only from {@link #KEY_FRAGMENT} — so there is exactly one place
+     * to aim, and the positive control in testNewStringsLiveInDefaultEnglishOnly asserts on this
+     * method. Re-pointing it at a fragment that matches nothing therefore cannot stay green.
+     */
+    private static List<String> translatedDeleteKeys(String localeXml) {
+        return stringKeysMatching(localeXml, KEY_FRAGMENT);
     }
 
     /** All {@code <string name="...">} keys in an XML document containing the given fragment. */
