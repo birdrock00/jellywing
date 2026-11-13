@@ -13,3 +13,4 @@
 - 2026-11-12T21:48:02Z E01-F01 round 3: Builder cleared C-A.1-C-A.5 (5 pairs, F3/F4 kill-proven on emulator); Architect refreshed the matrix (F8/F6/F2). Gate 150 tests 0 failures. -> in-review round 3.
 - 2026-11-12T23:51:31Z E01-F01 reviewer round 3 -> APPROVE WITH CONDITIONS. C-A.1-C-A.4 and R2-B1 cleared with mutants RED (C-A.3/C-A.4 on device); C-A.5/F5 not cleared (C-C1). Reviewer corrected the F9 filing. Reports force-added to git. -> in-progress round 4.
 - 2026-11-13T00:43:54Z E01-F01 round 4: C-C1 closed at 738820b1 (named scan + positive control, 4 mutants RED, 150/0/1); C-C2 matrix corrections applied and C-C1 rows status-mirrored. Commit-author PII obligation filed. -> in-review round 4.
+- 2026-11-13T01:03:46Z E01-F01 reviewer round 4 -> APPROVE WITH CONDITIONS. C-C1 reviewer-confirmed; C-C2 verified true; R3-B1 accepted as intrinsic bound. C-B is the only shipping gate. Matrix rows upgraded with the reviewer's own wording.
