@@ -20,6 +20,7 @@ import static org.junit.Assume.assumeTrue;
 import android.Manifest;
 import android.content.ComponentName;
 import android.content.Context;
+import android.util.Log;
 import android.content.ServiceConnection;
 import android.os.IBinder;
 import android.view.WindowManager;
@@ -39,6 +40,7 @@ import club.thatpetbff.gramophone.activities.MainActivity;
 import club.thatpetbff.gramophone.activities.base.AbsMusicPanelActivity;
 import club.thatpetbff.gramophone.fragments.player.NowPlayingScreen;
 import club.thatpetbff.gramophone.helper.MusicPlayerRemote;
+import club.thatpetbff.gramophone.service.MusicService;
 import club.thatpetbff.gramophone.model.Song;
 import club.thatpetbff.gramophone.util.FavoritesStore;
 import club.thatpetbff.gramophone.util.PreferenceUtil;
@@ -489,6 +491,176 @@ public class DeleteFromLibraryE2eTest {
             MusicPlayerRemote.unbindFromService(tokenRef.get());
             scenario.close();
         }
+    }
+
+    /**
+     * E2E-5 (R10): after a successful delete-and-advance, no {@code
+     * Sessions/Playing/Progress} report may name the dead id, and the server-report
+     * suppression guard must stop naming it (otherwise the next process start re-suppresses
+     * reports for an item the library no longer has).
+     *
+     * <p><b>Leg 1 (request-log, L2 — the only skippable leg in this feature):</b> for 30 s
+     * after the delete, the captured server request log must contain no progress line naming
+     * the dead id. That oracle exists only when the driver passes {@code -e qa_reqlog <url>};
+     * without it this leg prints exactly {@code SKIPPED (request-log oracle unavailable, L2)}
+     * and nothing more — never a fabricated pass. With the arg present, a non-200 capture or
+     * a capture holding no {@code Sessions/Playing} traffic at all is a <b>fail</b>, because
+     * an empty capture cannot prove absence.
+     *
+     * <p><b>Leg 2 (guard, always asserted):</b> this method ARMS the guard for the dead id
+     * itself ({@code favorites_guard}/{@code suppress_report_item_id}) and proves it armed,
+     * so the post-delete assertion cannot be satisfied by a guard that was never set. Both
+     * the in-process lookup ({@link MusicService#isServerReportSuppressed(String)}, what the
+     * service actually consults before reporting) and the ON-DISK pref are checked. Bound,
+     * stated plainly: <b>no process restart is performed here</b> — a force-stop would need
+     * the driver. The disk read is the restart-equivalent, because after a restart
+     * {@code isServerReportSuppressed} restores from exactly that value; the in-process read
+     * alone would not be, since it only consults disk while its cached field is null.
+     *
+     * <p>Destructive as E2E-1; driver cycle only. R-EV: no assumeTrue anywhere.
+     */
+    @Test
+    public void e2e5_noSessionReportsForDeadId() throws Exception {
+        String server = requireArg("qa_server");
+        String token = requireArg("qa_token");
+        String user = requireArg("qa_user");
+        String itemId = requireArg("qa_item");
+        String reqLogUrl = arg("qa_reqlog");
+
+        assertEquals("E2E-5 precondition: the sacrificial item must exist on the server (P0)",
+                200, serverItemStatus(server, token, user, itemId));
+        Song sacrificial = findSong(itemId);
+        assertNotNull("E2E-5 needs the sacrificial item synced in the app library", sacrificial);
+        Song nextTrack = findOtherSong(itemId);
+        assertNotNull("E2E-5 needs a second local track: the advance is what a session report "
+                + "would name instead of the dead id", nextTrack);
+
+        // Deterministic starting state, then ARM the R10 guard for this id.
+        MusicService.clearServerReportSuppression();
+        App.getInstance().getSharedPreferences(MusicService.GUARD_PREFS, Context.MODE_PRIVATE)
+                .edit().putString(MusicService.GUARD_KEY, itemId).apply();
+        assertTrue("E2E-5 fixture: the R10 guard must name the dead id BEFORE the delete. If "
+                + "this is false the arming did not take effect (or a stale in-memory guard "
+                + "names another id) and 'the guard no longer names the dead id' below would "
+                + "pass without the delete doing anything.",
+                MusicService.isServerReportSuppressed(itemId));
+
+        PreferenceUtil.getInstance(App.getInstance()).setNowPlayingScreen(NowPlayingScreen.CARD);
+        ActivityScenario<MainActivity> scenario = ActivityScenario.launch(MainActivity.class);
+        AtomicReference<MusicPlayerRemote.ServiceToken> tokenRef = new AtomicReference<>();
+        try {
+            MusicPlayerRemote.ServiceToken bound = bind(scenario);
+            tokenRef.set(bound);
+            scenario.onActivity(MainActivity::onServiceConnected);
+            dismissBatteryDialogIfPresent();
+
+            List<Song> queue = Arrays.asList(sacrificial, nextTrack);
+            scenario.onActivity(activity -> {
+                MusicPlayerRemote.openQueue(queue, 0, false);
+                activity.onQueueChanged();
+                activity.onPlayMetadataChanged();
+            });
+            Thread.sleep(1_500);
+            tapDeleteOnCurrentTrack(scenario);
+            assertToastShownEventually(R.string.delete_from_library_success, 15_000);
+
+            // The advance is asserted because it is what makes "a report would name the NEW
+            // item" meaningful; R3/R4 side of the same act.
+            Song current = MusicPlayerRemote.getCurrentSong();
+            assertNotNull("R3/R10: the queue must advance after the delete", current);
+            assertEquals("R3/R10: the current item must be the next track, not the deleted id",
+                    nextTrack.id, current.id);
+            assertFalse("R10: the guard must stop naming the deleted id in-process — a surviving "
+                    + "guard keeps suppressing Sessions/Playing reports for an id the library no "
+                    + "longer has", MusicService.isServerReportSuppressed(itemId));
+            String guardOnDisk = App.getInstance()
+                    .getSharedPreferences(MusicService.GUARD_PREFS, Context.MODE_PRIVATE)
+                    .getString(MusicService.GUARD_KEY, null);
+            assertTrue("R10: the on-disk guard pref must not still name the deleted id (" + guardOnDisk
+                    + "). isServerReportSuppressed() restores from this value whenever its cached "
+                    + "field is null, i.e. on the next process start, so a surviving pref means "
+                    + "reports stay suppressed after a restart. No restart was performed here; "
+                    + "this read is the restart-equivalent bound of this leg.",
+                    guardOnDisk == null || !itemId.equals(guardOnDisk));
+            assertEquals("server oracle: the item is gone", 404,
+                    serverItemStatus(server, token, user, itemId));
+
+            // ---- leg 1: the request-log oracle, over the 30 s after delete --------------
+            // Playback is (re)started so the window is one in which the app is expected to
+            // emit progress reports — for the NEW item. That is what makes the positive
+            // control below ("the capture contains Sessions/Playing traffic") reachable; the
+            // negative assertion then means something.
+            int nextIndex = queueIds().indexOf(nextTrack.id);
+            assertTrue("R10 setup: the advanced item must still be in the playing queue for a "
+                    + "progress report to be observable", nextIndex >= 0);
+            MusicPlayerRemote.playSongAt(nextIndex);
+            if (reqLogUrl == null) {
+                String skipped = "SKIPPED (request-log oracle unavailable, L2)";
+                System.out.println(skipped);
+                Log.i("DeleteFromLibraryE2e", skipped);
+            } else {
+                long deadline = System.currentTimeMillis() + 30_000;
+                boolean sawProgressTraffic = false;
+                List<String> reportsNamingDeadId = new ArrayList<>();
+                while (true) {
+                    HttpResp capture = rawGet(reqLogUrl);
+                    if (capture.status != 200) {
+                        fail("E2E-5 could not read the request-log capture at " + reqLogUrl
+                                + ": HTTP " + capture.status + ". With the oracle asked for, an "
+                                + "unreadable log is a failure, not a skip.");
+                    }
+                    for (String line : capture.body.split("\n")) {
+                        if (line.contains("Sessions/Playing")) {
+                            sawProgressTraffic = true;
+                        }
+                        if (line.contains("Sessions/Playing/Progress") && line.contains(itemId)) {
+                            reportsNamingDeadId.add(line);
+                        }
+                    }
+                    if (System.currentTimeMillis() > deadline) {
+                        break;
+                    }
+                    Thread.sleep(3_000);
+                }
+                if (!sawProgressTraffic) {
+                    fail("E2E-5 leg 1: the capture at " + reqLogUrl + " contained no "
+                            + "Sessions/Playing traffic at all during the 30 s window, so \"no "
+                            + "progress report names the dead id\" would be vacuously true. The "
+                            + "oracle is present but proves nothing here — fix the capture, or "
+                            + "omit -e qa_reqlog so the leg reports the L2 skip honestly.");
+                }
+                assertTrue("R10: no Sessions/Playing/Progress request may name the deleted id, "
+                        + "found " + reportsNamingDeadId.size() + " such line(s): "
+                        + reportsNamingDeadId, reportsNamingDeadId.isEmpty());
+            }
+        } finally {
+            MusicPlayerRemote.pauseSong();
+            MusicPlayerRemote.unbindFromService(tokenRef.get());
+            scenario.close();
+        }
+    }
+
+    /** GET that preserves line breaks, for scanning a captured request log. */
+    private static HttpResp rawGet(String url) throws Exception {
+        HttpURLConnection connection = (HttpURLConnection) new URL(url).openConnection();
+        connection.setRequestMethod("GET");
+        connection.setConnectTimeout(15_000);
+        connection.setReadTimeout(30_000);
+        int status = connection.getResponseCode();
+        StringBuilder body = new StringBuilder();
+        InputStream stream = status >= 400 ? connection.getErrorStream() : connection.getInputStream();
+        if (stream != null) {
+            try (BufferedReader reader = new BufferedReader(
+                    new InputStreamReader(stream, StandardCharsets.UTF_8))) {
+                String line;
+                while ((line = reader.readLine()) != null) {
+                    body.append(line).append('\n');
+                }
+            } catch (Exception ignored) {
+            }
+        }
+        connection.disconnect();
+        return new HttpResp(status, body.toString());
     }
 
     /**
