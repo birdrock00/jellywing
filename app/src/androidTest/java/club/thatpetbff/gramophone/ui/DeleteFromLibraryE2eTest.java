@@ -127,7 +127,7 @@ public class DeleteFromLibraryE2eTest {
 
             scenario.onActivity(activity -> ((AbsMusicPanelActivity) activity).expandPanel());
             Thread.sleep(1_000);
-            openPlayerOverflowAndTapDelete();
+            openPlayerOverflowAndTapDelete(scenario);
 
             onView(withText(R.string.delete_from_library_body)).inRoot(isDialog())
                     .check(matches(isDisplayed()));
@@ -207,7 +207,7 @@ public class DeleteFromLibraryE2eTest {
             Thread.sleep(1_500);
             scenario.onActivity(activity -> ((AbsMusicPanelActivity) activity).expandPanel());
             Thread.sleep(1_000);
-            openPlayerOverflowAndTapDelete();
+            openPlayerOverflowAndTapDelete(scenario);
             onView(withText(R.string.delete_from_library_confirm)).inRoot(isDialog())
                     .perform(click());
             Thread.sleep(2_500);
@@ -234,7 +234,7 @@ public class DeleteFromLibraryE2eTest {
             scenario.onActivity(activity -> ((AbsMusicPanelActivity) activity).expandPanel());
             Thread.sleep(1_000);
             favoritesRefreshed.set(Boolean.FALSE); // arm the R9 leg for THIS act only
-            openPlayerOverflowAndTapDelete();
+            openPlayerOverflowAndTapDelete(scenario);
             onView(withText(R.string.delete_from_library_confirm)).inRoot(isDialog())
                     .perform(click());
 
@@ -314,7 +314,7 @@ public class DeleteFromLibraryE2eTest {
             Thread.sleep(1_500);
             scenario.onActivity(activity -> ((AbsMusicPanelActivity) activity).expandPanel());
             Thread.sleep(1_000);
-            openPlayerOverflowAndTapDelete();
+            openPlayerOverflowAndTapDelete(scenario);
             onView(withText(R.string.delete_from_library_confirm)).inRoot(isDialog())
                     .perform(click());
             assertToastShownEventually(R.string.delete_from_library_success, 15_000);
@@ -337,7 +337,7 @@ public class DeleteFromLibraryE2eTest {
             Thread.sleep(1_500);
             scenario.onActivity(activity -> ((AbsMusicPanelActivity) activity).expandPanel());
             Thread.sleep(1_000);
-            openPlayerOverflowAndTapDelete();
+            openPlayerOverflowAndTapDelete(scenario);
             onView(withText(R.string.delete_from_library_confirm)).inRoot(isDialog())
                     .perform(click());
 
@@ -871,7 +871,7 @@ public class DeleteFromLibraryE2eTest {
             throws Exception {
         scenario.onActivity(activity -> ((AbsMusicPanelActivity) activity).expandPanel());
         Thread.sleep(1_000);
-        openPlayerOverflowAndTapDelete();
+        openPlayerOverflowAndTapDelete(scenario);
         onView(withText(R.string.delete_from_library_confirm)).inRoot(isDialog())
                 .perform(click());
     }
@@ -1071,7 +1071,19 @@ public class DeleteFromLibraryE2eTest {
         }
     }
 
-    static void openPlayerOverflowAndTapDelete() {
+    /**
+     * Open the player overflow and tap "Delete from library".
+     *
+     * <p>The row is tapped through {@link PlayerOverflow}, by visible text in a window other than
+     * the activity, because appcompat renders this overflow in its own window:
+     * {@code onView(withId(R.id.action_delete_from_library))} searches the activity window and
+     * raises NoMatchingViewException while the row is plainly on screen. Measured on 2026-11-13:
+     * e2e1 ran 71 s and died exactly that way with a server-backed song current.
+     *
+     * <p>Matching on the menu's own string means the test still fails if the item is renamed away
+     * from the user-facing label, which is the thing a user actually looks for.
+     */
+    static void openPlayerOverflowAndTapDelete(ActivityScenario<MainActivity> scenario) {
         onView(allOf(withContentDescription("More options"),
                 isDescendantOfA(withId(R.id.player_toolbar)))).perform(click());
         int deleteItemId = InstrumentationRegistry.getInstrumentation().getTargetContext()
@@ -1079,7 +1091,8 @@ public class DeleteFromLibraryE2eTest {
                         InstrumentationRegistry.getInstrumentation().getTargetContext().getPackageName());
         assertTrue("Player overflow must expose action_delete_from_library (R1)",
                 deleteItemId != 0);
-        onView(allOf(withId(deleteItemId), isDisplayed())).perform(click());
+        String label = App.getInstance().getString(R.string.action_delete_from_library);
+        PlayerOverflow.clickItem(label, PlayerOverflow.activityDecor(scenario));
     }
 
     static String arg(String key) {
