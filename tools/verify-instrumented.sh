@@ -118,10 +118,25 @@ for cls in "${FQNS[@]}"; do
   [[ -n $methods ]] || { echo "FAIL $cls — @Test declared but no method parsed"; FAILED="$FAILED$cls(parse)\n"; failn=$((failn+1)); continue; }
   for m in $methods; do
     log="$OUT_DIR/$cls#$m.log"
+    # Optional live-server credentials, so classes that assume on missing args can actually execute
+    # instead of being silently skipped. Values must not contain spaces (unquoted word splitting).
+    LIVE_ARGS=""
+    if [[ -n ${QA_SERVER:-} && -n ${QA_JELLYFIN_USERNAME:-} && -n ${QA_JELLYFIN_PASSWORD:-} ]]; then
+      LIVE_ARGS="-e jellyfinServer $QA_SERVER -e jellyfinUsername $QA_JELLYFIN_USERNAME -e jellyfinPassword $QA_JELLYFIN_PASSWORD"
+    fi
     timeout 420 $ADB -s "$DEVICE" shell am instrument -w \
-      -e class "$cls#$m" "$TEST_PKG/$RUNNER" > "$log" 2>&1
+      -e class "$cls#$m" $LIVE_ARGS "$TEST_PKG/$RUNNER" > "$log" 2>&1
     rc=$?
-    if grep -qE '^OK \(1 test\)$' "$log"; then
+    # Positive execution proof, measured 2026-11-13: the JUnit4 text runner appends one progress
+    # character per completed method to the class header line. An executed pass looks like
+    #   club.thatpetbff.gramophone.ui.JellyfinPlaybackSmokeTest:.
+    # while a method skipped by an assumption in @Before/@Rule prints the header twice with NO
+    # progress character and still reports "OK (1 test)". So ":<dots>" at end of line is the signal
+    # that the body actually ran; "OK (N tests)" alone is not.
+    if grep -qE '^OK \(1 test\)$' "$log" && grep -qE ':[.FE]+$' "$log"; then
+      pass=$((pass+1))
+      printf '  PASS %s#%s (%s)\n' "${cls##*.}" "$m" "$(grep -h -oE 'Time: [0-9.]+' "$log" | tail -1)"
+    elif grep -qE '^OK \(1 test\)$' "$log"; then
       # Counted as PASS until 2026-11-13. It is not evidence: a test body ending in
       # `throw new AssertionError("GRIP-MARKER")` produced exactly this line in 0.075s, and the
       # same class with a misspelled method name produced "OK (0 tests)" — so the runner found the
