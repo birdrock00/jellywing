@@ -8,7 +8,19 @@
 #     forbid;
 #   - an assume-skipped method run BY NAME reports "OK (0 tests)", and a real one reports
 #     "OK (1 test)" with Time > 0.
-# So each method is invoked individually and only "^OK (1 test)$" counts as executed. Anything
+# CORRECTION (2026-11-13), measured on this host — the premise above is FALSE and was the basis of
+# a claim this repo published. Proof: a @Test body ending in `throw new AssertionError("GRIP-MARKER")`
+# still reports "OK (1 test)" in 0.075s, while a deliberately misspelled method name reports
+# "OK (0 tests)". So the method IS found and the runner still reports green without executing the
+# body. Reason: JUnit treats an assumption violated in @Before or in an @Rule as "skipped", and the
+# plain-text AndroidX runner counts a skipped method as a passing test. Any class gated by a rule
+# (Espresso/ActivityScenario/permission rules qualify) can therefore never fail this check.
+#
+# Consequence: "OK (1 test)" is NOT proof of execution, and no runner-output rule can make it so.
+# Until each device test emits a positive execution marker that the tier can observe, this script
+# must not report green. It reports UNPROVEN and exits 3 ("could not verify") instead.
+#
+# So each method is invoked individually. Anything
 # else is a finding, never a pass.
 #
 # Deliberate constraints, all learned the hard way in this lane (see qa-emulator.md, lessons.md):
@@ -88,8 +100,9 @@ fi
 is_skipped() { [[ -f $SKIP_LIST ]] && awk -v c="$1" '$1==c{f=1} END{exit !f}' "$SKIP_LIST"; }
 skip_reason() { awk -v c="$1" '$1==c{ sub(/^[^#]*#[[:space:]]*/,""); print; exit }' "$SKIP_LIST" 2>/dev/null; }
 
-pass=0; failn=0; skipn=0
+pass=0; failn=0; skipn=0; unproven=0
 FAILED=""
+UNPROVEN=""
 for cls in "${FQNS[@]}"; do
   if is_skipped "$cls"; then
     reason=$(skip_reason "$cls")
@@ -109,8 +122,13 @@ for cls in "${FQNS[@]}"; do
       -e class "$cls#$m" "$TEST_PKG/$RUNNER" > "$log" 2>&1
     rc=$?
     if grep -qE '^OK \(1 test\)$' "$log"; then
-      pass=$((pass+1))
-      printf '  PASS %s#%s\n' "${cls##*.}" "$m"
+      # Counted as PASS until 2026-11-13. It is not evidence: a test body ending in
+      # `throw new AssertionError("GRIP-MARKER")` produced exactly this line in 0.075s, and the
+      # same class with a misspelled method name produced "OK (0 tests)" — so the runner found the
+      # method, skipped it (assumption violated in @Before/@Rule), and still called it green.
+      unproven=$((unproven+1))
+      UNPROVEN="${UNPROVEN}  UNPROVEN ${cls}#${m} — runner reported OK without provable body execution ($(grep -h -oE 'Time: [0-9.]+' "$log" | tail -1))\n"
+      printf '  UNPROVEN %s#%s (OK reported, execution unprovable)\n' "${cls##*.}" "$m"
     elif grep -qE '^OK \(0 tests\)$' "$log"; then
       # R-NONASTR: an assumption failure is NOT a pass. It is reported as a finding so it cannot
       # quietly become a green tier.
@@ -127,11 +145,18 @@ for cls in "${FQNS[@]}"; do
 done
 
 echo "-----------------------------------------------"
-echo "instrumented: executed-pass=$pass not-run-or-fail=$failn classes-skipped=$skipn"
+echo "instrumented: executed-pass=$pass unproven=$unproven not-run-or-fail=$failn classes-skipped=$skipn"
 if [[ $failn -gt 0 ]]; then
   printf '%b' "$FAILED"
   echo "logs: $OUT_DIR"
   exit 2
+fi
+if [[ $unproven -gt 0 ]]; then
+  printf '%b' "$UNPROVEN"
+  echo "This tier cannot currently prove that any device test executed its body."
+  echo "Fix requires a positive execution marker emitted by each test and observed by this script"
+  echo "(runner output alone is insufficient — see the correction at the top of this file)."
+  exit 3
 fi
 [[ $pass -gt 0 ]] || { echo "no test executed at all — that is not a pass"; exit 2; }
 echo "verify-instrumented: PASS"
