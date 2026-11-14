@@ -96,7 +96,11 @@ public class DeleteConfirmDialogTest {
                             InstrumentationRegistry.getInstrumentation().getTargetContext().getPackageName());
             assertTrue("Player overflow must expose action_delete_from_library (R1)",
                     deleteItemId != 0);
-            onView(allOf(withId(deleteItemId), isDisplayed())).perform(click());
+            // Clicked by row content, not by id: see PlayerOverflow for why the id query cannot
+            // reach a popup that lives in its own window.
+            PlayerOverflow.clickItem(InstrumentationRegistry.getInstrumentation().getTargetContext()
+                            .getString(R.string.action_delete_from_library),
+                    PlayerOverflow.activityDecor(scenario));
 
             // R2 destructive copy must be stated before any request could be issued.
             onView(withText(R.string.delete_from_library_body)).inRoot(isDialog())
