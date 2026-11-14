@@ -16,6 +16,7 @@ import android.content.ServiceConnection;
 import android.os.IBinder;
 
 import androidx.test.core.app.ActivityScenario;
+import androidx.test.espresso.NoMatchingRootException;
 import androidx.test.espresso.NoMatchingViewException;
 import androidx.test.ext.junit.runners.AndroidJUnit4;
 import androidx.test.filters.LargeTest;
@@ -88,7 +89,11 @@ public class MiniPlayerVisibilityTest {
             onView(withText(R.string.ignore))
                     .inRoot(isDialog())
                     .perform(click());
-        } catch (NoMatchingViewException ignored) {
+            // "IfPresent" means absence is a normal outcome. On API 36 the dialog simply does not
+            // appear, and Espresso reports that as NoMatchingRootException (no dialog window exists at
+            // all), not NoMatchingViewException — catching only the latter turned an optional cleanup
+            // into a hard test failure.
+        } catch (NoMatchingViewException | NoMatchingRootException ignored) {
         }
     }
 

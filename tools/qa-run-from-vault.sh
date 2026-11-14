@@ -16,7 +16,8 @@
 #       --restore-cmd 'cp "$BACKUP_FILE" "$ORIGINAL_PATH"' -- run e2e1_happyPathCycle
 #   sh tools/qa-run-from-vault.sh --server https://<host> --dry-run -- probe
 #
-# Vault item: jellyfin-test  (injects JELLYFIN_TEST_USERNAME / JELLYFIN_TEST_PASSWORD)
+# Vault item defaults to jellyfin-test; pass --item to use another. The runner derives the
+# injected variable names (<ITEM>_USERNAME / <ITEM>_PASSWORD) from whatever item is given.
 
 set -uo pipefail
 cd "$(git rev-parse --show-toplevel 2>/dev/null || pwd)" || exit 3
@@ -52,7 +53,7 @@ if [[ $sub == run || $sub == restore ]]; then
 fi
 
 if [[ $DRY == 1 ]]; then
-  echo "would: inject $ITEM from vaultwarden -> JELLYFIN_TEST_USERNAME/JELLYFIN_TEST_PASSWORD"
+  echo "would: inject $ITEM from vaultwarden -> <ITEM>_USERNAME/<ITEM>_PASSWORD"
   echo "would: POST \$QA_SERVER/Users/AuthenticateByName to mint QA_TOKEN and QA_USER"
   echo "would: exec tools/qa-delete-cycle.sh ${ARGS[*]:-}"
   [[ -n $RESTORE_CMD ]] && echo "would: export QA_RESTORE_CMD (value not shown)" || echo "note:  QA_RESTORE_CMD unset — destructive legs would still refuse"
@@ -64,15 +65,20 @@ fi
 VAULT_INJECT="$ITEM" QA_SERVER="$SERVER" QA_RESTORE_CMD="$RESTORE_CMD" \
   "$VVC" "${PASS_VVC_FLAGS[@]}" run "$ITEM" -- bash -c '
     set -uo pipefail
-    : "${JELLYFIN_TEST_USERNAME:?}" ; : "${JELLYFIN_TEST_PASSWORD:?}"
-    body=$(printf "{\"Username\":\"%s\",\"Pw\":\"%s\"}" "$JELLYFIN_TEST_USERNAME" "$JELLYFIN_TEST_PASSWORD")
+    # The tool injects <ITEM>_USERNAME / <ITEM>_PASSWORD with non-alphanumerics folded to "_",
+    # so derive the names from whichever item was requested rather than hardcoding one account.
+    prefix=$(printf %s "$VAULT_INJECT" | tr "[:lower:]" "[:upper:]" | tr -c "[:upper:][:digit:]" "_")
+    QA_VUSER=$(printenv "${prefix}_USERNAME" || true)
+    QA_VPASS=$(printenv "${prefix}_PASSWORD" || true)
+    [[ -n ${QA_VUSER:-} && -n ${QA_VPASS:-} ]] || { echo "REFUSING: vault item $VAULT_INJECT did not inject ${prefix}_USERNAME / ${prefix}_PASSWORD" >&2; exit 3; }
+    body=$(printf "{\"Username\":\"%s\",\"Pw\":\"%s\"}" "$QA_VUSER" "$QA_VPASS")
     resp=$(curl -sS -m 20 \
       -H "Content-Type: application/json" \
       -H "X-Emby-Authorization: MediaBrowser Client=\"gramophone-qa\", Device=\"qa-runner\", DeviceId=\"qa-runner-1\", Version=\"1\"" \
       -X POST "$QA_SERVER/Users/AuthenticateByName" -d "$body") || { echo "REFUSING: could not reach $QA_SERVER" >&2; exit 3; }
     QA_TOKEN=$(printf %s "$resp" | python3 -c "import json,sys;print(json.load(sys.stdin).get(\"AccessToken\",\"\"))" 2>/dev/null)
     QA_USER=$(printf %s "$resp"  | python3 -c "import json,sys;print(json.load(sys.stdin).get(\"User\",{}).get(\"Id\",\"\"))" 2>/dev/null)
-    [[ -n $QA_TOKEN && -n $QA_USER ]] || { echo "REFUSING: authentication did not return a token/user id for item vault item jellyfin-test against this host" >&2; exit 3; }
+    [[ -n $QA_TOKEN && -n $QA_USER ]] || { echo "REFUSING: authentication did not return a token/user id for vault item $VAULT_INJECT against this host" >&2; exit 3; }
     export QA_SERVER QA_TOKEN QA_USER
     echo "authenticated; QA_TOKEN and QA_USER minted (values never shown)"
     exec sh tools/qa-delete-cycle.sh "$@"

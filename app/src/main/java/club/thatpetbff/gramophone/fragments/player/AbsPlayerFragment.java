@@ -111,6 +111,11 @@ public abstract class AbsPlayerFragment extends AbsMusicServiceFragment implemen
         Song song = MusicPlayerRemote.getCurrentSong();
         boolean serverBacked = song != null && song.id != null && !song.id.trim().isEmpty();
         deleteItem.setVisible(serverBacked);
+        // Booleans only: no titles, ids or URLs. Tells a RED run apart from a hierarchy problem.
+        android.util.Log.i("DeleteMenu",
+                "apply toolbar=" + (toolbar != null) + " menu=" + (toolbar != null && toolbar.getMenu() != null)
+                        + " itemFound=true songPresent=" + (song != null)
+                        + " serverBacked=" + serverBacked + " visible=" + deleteItem.isVisible());
     }
 
     protected boolean isToolbarShown() {

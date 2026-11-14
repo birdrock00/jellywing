@@ -86,8 +86,9 @@ public class DeleteMenuItemVisibilityTest {
             int deleteItemId = deleteMenuItemId();
             assertTrue("Player overflow must expose action_delete_from_library (R1)",
                     deleteItemId != 0);
-            onView(allOf(withId(deleteItemId), isDisplayed()))
-                    .check(matches(isDisplayed()));
+            // The overflow popup is a separate, ListView-backed window: onView(withId(...)) cannot
+            // see it and used to fail here even though the fragment logged visible=true.
+            PlayerOverflow.assertItemShown(overflowTitle(), PlayerOverflow.activityDecor(scenario));
         } finally {
             MusicPlayerRemote.pauseSong();
             MusicPlayerRemote.unbindFromService(tokenRef.get());
@@ -134,12 +135,17 @@ public class DeleteMenuItemVisibilityTest {
             int deleteItemId = deleteMenuItemId();
             assertTrue("Player overflow must expose action_delete_from_library (R1)",
                     deleteItemId != 0);
-            onView(allOf(withId(deleteItemId), isDisplayed())).check(doesNotExist());
+            PlayerOverflow.assertItemAbsent(overflowTitle(), PlayerOverflow.activityDecor(scenario));
         } finally {
             MusicPlayerRemote.unbindFromService(tokenRef.get());
             scenario.close();
             sessionGuard.close();
         }
+    }
+
+    private static String overflowTitle() {
+        return InstrumentationRegistry.getInstrumentation().getTargetContext()
+                .getString(R.string.action_delete_from_library);
     }
 
     private static int deleteMenuItemId() {
