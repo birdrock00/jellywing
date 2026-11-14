@@ -52,6 +52,11 @@ FIXTURE_PLAYLIST="${QA_PLAYLIST_NAME:-}"
 LOG_DIR="${TMPDIR:-/tmp}/qa-delete-cycle-$(date +%Y%m%d-%H%M%S)"
 DEVICE=""
 METHOD_CLASS="club.thatpetbff.gramophone.ui.DeleteFromLibraryE2eTest"
+# am instrument needs <test-package>/<runner> as its target. The debug build uses applicationIdSuffix
+# '.debug' and the androidTest applicationId is that plus '.test'; without this the command is
+# incomplete and am fails before executing anything.
+TEST_PKG=${TEST_PKG:-club.thatpetbff.gramophone.debug.test}
+RUNNER=${RUNNER:-androidx.test.runner.AndroidJUnitRunner}
 SCAN_DELEGATED=0
 EXPECTS=""
 EXPECTS_GIVEN=0
@@ -401,19 +406,27 @@ PY
 
 # ---------------------------------------------------------------- P2/P4 device act (E2E inside)
 run_instrument() { # run_instrument METHOD_NAME
-    local method=$1 log=$LOG_DIR/instrument-$method.log
+    local method=$1
+    # Declaring both in one `local` statement makes "$method" unbound here: bash creates all the
+    # names before assigning any of them, so under `set -u` the second reference aborts the run.
+    local log=$LOG_DIR/instrument-$method.log
     : > "$log"
-    local args=(-e class "$METHOD_CLASS#$method"
-                -e qa_server "$QA_SERVER" -e qa_token "$QA_TOKEN"
-                -e qa_user "$QA_USER" -e qa_item "$ITEM_ID")
-    [[ $SCAN_DELEGATED == 1 ]] && args+=(-e qa_scan delegated)
-    [[ -n ${QA_REQLOG:-} ]] && args+=(-e qa_reqlog "$QA_REQLOG")
-    [[ -n $LEG ]] && args+=(-e qa_leg "$LEG")
+    # Built as ONE string with inner single quotes, because adb joins argv with spaces and the
+    # device shell then re-parses it. Two real consequences measured on 2026-11-13:
+    #   - the unquoted '#' in "Class#method" starts a shell comment on the device, truncating the
+    #     command;
+    #   - no instrumentation target was ever passed, so am answered
+#     'Error: Argument expected after "<guid>"' and P2 died before the act could run.
+    local devcmd="am instrument -w -e class '$METHOD_CLASS#$method' -e qa_server '$QA_SERVER' -e qa_token '$QA_TOKEN' -e qa_user '$QA_USER' -e qa_item '$ITEM_ID'"
+    [[ $SCAN_DELEGATED == 1 ]] && devcmd+=" -e qa_scan delegated"
+    [[ -n ${QA_REQLOG:-} ]] && devcmd+=" -e qa_reqlog '$QA_REQLOG'"
+    [[ -n $LEG ]] && devcmd+=" -e qa_leg '$LEG'"
+    devcmd+=" $TEST_PKG/$RUNNER"
     # The act may delete: from here on, ANY abort must trigger P5 restore first.
     DELETED_FLAG=1
     adb -s "$DEVICE" logcat -c >/dev/null 2>&1 || true
     echo "== am instrument -w $METHOD_CLASS#$method ==" > "$log"
-    adb -s "$DEVICE" shell am instrument -w "${args[@]}" >> "$log" 2>&1
+    adb -s "$DEVICE" shell "$devcmd" >> "$log" 2>&1
     local rc=$?
     adb -s "$DEVICE" logcat -d >> "$log" 2>&1 || true
     scrub < "$log" > "$LOG_DIR/instrument-$method.scrubbed.log"
