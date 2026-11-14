@@ -148,8 +148,18 @@ case $LOG_DIR in
         exit 2 ;;
 esac
 DRIVER_LOG=$LOG_DIR/driver.log
-AUTH_HEADER='Authorization: MediaBrowser Client="jellywing-qa", Device="qa-driver", DeviceId="qa-driver", Version="1.0"'
+# Jellyfin 12 requires the access token INSIDE the Authorization parameter list; a bare client
+# identity authenticates nothing and every authenticated call answers 401. See
+# app/src/main/java/club/thatpetbff/gramophone/util/AuthHeaderFix.java, which documents exactly this
+# for the app's own client. X-MediaBrowser-Token is sent alongside for older servers.
+AUTH_HEADER="Authorization: MediaBrowser Client=\"jellywing-qa\", Device=\"qa-driver\", DeviceId=\"qa-driver\", Version=\"1.0\", Token=\"$QA_TOKEN\""
+TOKEN_HEADER="X-MediaBrowser-Token: $QA_TOKEN"
 STATE_DIR=$LOG_DIR/state
+# Created here, not in p0: api() writes "$out.err" next to every response body, and the very first
+# api() call is the preflight reachability probe — which runs long before p0. Measured on a live
+# server: without this, check_server_reachable dies "HTTP 000 ... server unreachable" while the
+# server is healthy, because the redirect target directory does not exist yet.
+mkdir -p "$STATE_DIR" || { echo "FATAL: cannot create $STATE_DIR" >&2; exit 2; }
 ALL_SNAPSHOT=$STATE_DIR/holders-before.txt
 declare -a ITEM_IDS HOLDING_PIDS HOLDING_COUNTS HOLDING_NAMES ALL_PIDS
 
@@ -158,7 +168,7 @@ declare -a ITEM_IDS HOLDING_PIDS HOLDING_COUNTS HOLDING_NAMES ALL_PIDS
 api() {
     local method=$1 path=$2 out=$3 code
     code=$(curl -sS --connect-timeout 15 --max-time 120 -o "$out" -w '%{http_code}' \
-        -X "$method" -H "$AUTH_HEADER" -H 'Accept: application/json' \
+        -X "$method" -H "$AUTH_HEADER" -H "$TOKEN_HEADER" -H 'Accept: application/json' \
         "$QA_SERVER$path" 2>"$out.err" | scrub) || {
         scrub < "$out.err" >&2; echo "000"; return 1; }
     [[ -s $out.err ]] && scrub < "$out.err" >> "$DRIVER_LOG"
@@ -300,7 +310,10 @@ PY
 
     # Enumerate EVERY playlist via the CORRECT endpoint (B1.3):
     #   GET /Playlists/{playlistId}/Items?UserId=…   (NOT /Items/{id}/Items, which 404s for playlists)
-    code=$(api GET "/Users/$QA_USER/Playlists?UserId=$QA_USER" "$STATE_DIR/playlists.json")
+    # Jellyfin 12 removed /Users/{userId}/Playlists (404) and answers 405 on /Playlists. The
+    # supported enumeration is the generic item query. Measured against the live server on
+    # 2026-11-13; the old route is what made P0 die before this change.
+    code=$(api GET "/Items?IncludeItemTypes=Playlist&Recursive=true&UserId=$QA_USER&Limit=$QA_PAGE_LIMIT" "$STATE_DIR/playlists.json")
     [[ $code == 200 ]] || die P0 "playlist enumeration failed (HTTP $code) — never treated as 'no playlists'"
     mapfile -t ALL_PIDS < <(playlist_ids_from "$STATE_DIR/playlists.json" | scrub)
     [[ ${#ALL_PIDS[@]} -gt 0 ]] || die P0 "server lists zero playlists — premise broken (never read as 'fixture unheld')"
@@ -318,8 +331,15 @@ import json,sys
 print("\n".join(i.get("Id","") for i in json.load(open(sys.argv[1])).get("Items",[])))
 PY
 ) || die P0 "playlist items body for a scanned playlist did not parse — failing loudly (B1.3)"
-        if [[ $total -le 0 || -z $ids ]]; then
-            die P0 "a playlist returned an EMPTY item list via the membership endpoint — failing loudly instead of trusting emptiness (B1.3)"
+        # A 0/0 playlist is a VERIFIED empty, not a suspicious one: playlist_items_checked has already
+        # required HTTP 200, a present TotalRecordCount, and len(Items) == TotalRecordCount, so the
+        # failure modes this rule guards against (wrong endpoint, cache, page truncation) are handled
+        # inside the helper. Refusing to run at all because some unrelated playlist happens to be empty
+        # meant no server with an empty playlist could ever complete a cycle — measured on the live
+        # server, where 4 of 5 playlists are non-empty and one is genuinely empty. What stays fatal is
+        # a count/id mismatch: the server says it holds items we cannot see.
+        if [[ -z $ids && $total != 0 ]]; then
+            die P0 "playlist reports TotalRecordCount=$total but returned no item ids — failing loudly instead of reading it as absence (B1.3)"
         fi
         held=no; grep -qxF "$ITEM_ID" <<< "$ids" && held=yes
         printf '%s\t%s\t%s\n' "$pid" "$total" "$held" >> "$ALL_SNAPSHOT"
@@ -362,7 +382,7 @@ p1_backup() {
     BACKUP_FILE=$LOG_DIR/fixture-backup
     local code rng
     rng=$(curl -sS --connect-timeout 15 --max-time 600 -o "$BACKUP_FILE" -w '%{http_code}' \
-        -H "$AUTH_HEADER" -H 'Range: bytes=0-' \
+        -H "$AUTH_HEADER" -H "$TOKEN_HEADER" -H 'Range: bytes=0-' \
         "$QA_SERVER/Items/$ITEM_ID/Download" 2>&1 | scrub) || die P1 "ranged download failed: $rng"
     code=${rng##* }
     [[ $code == 206 ]] || die P1 "ranged GET returned HTTP $code (expected 206 + media bytes) — abort before any destructive call"
